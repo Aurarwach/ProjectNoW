@@ -526,12 +526,52 @@ export default function FileAnalysisDetail() {
                   );
                 })()}
 
-                {/* ========== Key Insight (เปลี่ยนชื่อจาก "อินไซด์ลูกค้า") ========== */}
-                {(analysis.key_insights || (analysis as any).action_items?.length > 0) && (() => {
-                  const isHighRisk =
-                    analysis.sentiment?.toLowerCase() === 'negative' ||
-                    (typeof analysis.qa_score === 'number' && analysis.qa_score < 5);
-                  const actionItems = (analysis as any).action_items || [];
+                {/* ========== Key Insight (Deep Customer Insight) ========== */}
+                {(() => {
+                  // ★ ดึง deep_insight ใหม่ — ถ้าไม่มี fallback ใช้ key_insights+action_items แบบเดิม
+                  const di = (analysis as any).deep_insight || {};
+                  const hasDeep = di && (di.customer_need || di.pain_point || di.expectation || di.recommended_action);
+
+                  const rawNeed     = hasDeep ? (di.customer_need || '') : (analysis.key_insights || '');
+                  const painPoint   = hasDeep ? (di.pain_point || '').trim() : '';
+                  const rootCause   = hasDeep ? (di.root_cause || '').trim() : '';
+                  const expectation = hasDeep ? (di.expectation || '').trim() : '';
+
+                  // ถ้า customer_need สั้น (< 40 ตัว) หรือไม่มีบริบทเหตุผล → ผูก pain/root เข้ามาในประโยค
+                  // (สำหรับ data เก่าที่ prompt ยังไม่บังคับให้ AI รวมบริบท)
+                  let customerNeed = rawNeed;
+                  if (hasDeep && rawNeed) {
+                    const needHasContext = /เนื่องจาก|เพราะ|จาก|จากปัญหา/.test(rawNeed);
+                    if (!needHasContext && (painPoint || rootCause)) {
+                      const ctx = painPoint || rootCause;
+                      customerNeed = `${rawNeed} เนื่องจาก${ctx}`;
+                    }
+                  }
+
+                  const steps: string[] = hasDeep
+                    ? (Array.isArray(di.recommended_steps) && di.recommended_steps.length > 0
+                        ? di.recommended_steps
+                        : (di.recommended_action ? [di.recommended_action] : []))
+                    : ((analysis as any).action_items || []);
+
+                  // Risk level จาก deep_insight ถ้ามี ไม่งั้น fallback เดิม (sentiment/qa)
+                  const riskLevel: 'low' | 'medium' | 'high' =
+                    hasDeep && ['low','medium','high'].includes(di.risk_level)
+                      ? di.risk_level
+                      : (analysis.sentiment?.toLowerCase() === 'negative' ||
+                         (typeof analysis.qa_score === 'number' && analysis.qa_score < 5))
+                        ? 'high' : 'low';
+
+                  const confidence = typeof di.confidence === 'number' ? di.confidence : null;
+
+                  // ไม่แสดงกล่องเลยถ้าไม่มีข้อมูลใด
+                  if (!customerNeed && steps.length === 0) return null;
+
+                  const riskCfg = {
+                    high:   { label: 'ความเสี่ยงสูง',   cls: 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-300', dot: 'bg-red-500' },
+                    medium: { label: 'ความเสี่ยงปานกลาง', cls: 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300', dot: 'bg-amber-500' },
+                    low:    { label: 'ความเสี่ยงต่ำ',    cls: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300', dot: 'bg-emerald-500' },
+                  }[riskLevel];
 
                   return (
                     <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/40">
@@ -540,34 +580,37 @@ export default function FileAnalysisDetail() {
                         <div className="flex items-center space-x-2">
                           <Lightbulb className="text-blue-600 dark:text-blue-400" size={20} />
                           <h2 className="text-base font-bold text-blue-800 dark:text-blue-300">Key Insight</h2>
+                          {confidence !== null && hasDeep && (
+                            <span className="text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 rounded-full">
+                              ความมั่นใจ {confidence}%
+                            </span>
+                          )}
                         </div>
-                        {isHighRisk && (
-                          <span className="px-2.5 py-1 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-300 text-[10px] font-bold rounded-full flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-                            ความเสี่ยงสูง
-                          </span>
-                        )}
+                        <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full flex items-center gap-1 ${riskCfg.cls}`}>
+                          <span className={`w-1.5 h-1.5 ${riskCfg.dot} rounded-full`} />
+                          {riskCfg.label}
+                        </span>
                       </div>
                       <p className="text-[11px] text-blue-500 dark:text-blue-400 ml-7 mb-4">
                         เจาะสิ่งที่ลูกค้าต้องการจริง และสิ่งที่ควรทำต่อ
                       </p>
 
-                      {/* ลูกค้าต้องการอะไร */}
-                      {analysis.key_insights && (
+                      {/* ลูกค้าต้องการอะไร (รวมบริบทไว้ในประโยคเดียว) */}
+                      {customerNeed && (
                         <div className="bg-white dark:bg-slate-800 border border-blue-100 dark:border-blue-900/40 rounded-xl p-4 mb-3">
                           <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">ลูกค้าต้องการอะไร</p>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-relaxed">
-                            {analysis.key_insights}
+                            {customerNeed}
                           </p>
                         </div>
                       )}
 
                       {/* สิ่งที่ควรทำต่อ */}
-                      {actionItems.length > 0 && (
+                      {steps.length > 0 && (
                         <div className="bg-white dark:bg-slate-800 border border-blue-100 dark:border-blue-900/40 rounded-xl p-4">
                           <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">สิ่งที่ควรทำต่อ</p>
                           <ol className="space-y-1.5">
-                            {actionItems.map((item: string, i: number) => (
+                            {steps.map((item: string, i: number) => (
                               <li key={i} className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed flex gap-2">
                                 <span className="font-bold text-slate-500 dark:text-slate-400 shrink-0">{i + 1}.</span>
                                 <span>{item}</span>
