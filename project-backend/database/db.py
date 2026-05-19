@@ -64,6 +64,15 @@ def init_db():
         schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
         conn.executescript(schema_sql)
 
+        # === Migration: เพิ่มคอลัมน์ deep_insight ถ้ายังไม่มี ===
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(audio_analyses)").fetchall()}
+        if "deep_insight" not in cols:
+            try:
+                conn.execute("ALTER TABLE audio_analyses ADD COLUMN deep_insight TEXT DEFAULT '{}'")
+                print("   🔧 Migration: added column audio_analyses.deep_insight")
+            except Exception as e:
+                print(f"   ⚠️ Migration failed for deep_insight: {e}")
+
     print(f"✅ Database initialized: {DB_PATH}")
     print(f"   Size: {DB_PATH.stat().st_size / 1024:.1f} KB")
 
@@ -249,9 +258,9 @@ def save_analysis_result(analysis_data: dict) -> dict:
              audio_duration_seconds, sentiment, sentiment_score, intent,
              brand_names, product_category, sale_channel,
              qa_score, csat_score, summary_text, summary_points,
-             key_insights, keywords, action_items, segments,
+             key_insights, keywords, action_items, deep_insight, segments,
              model_version, pipeline_duration, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             analysis_data.get("file_id", ""),
             analysis_data.get("task_id", ""),
@@ -272,6 +281,7 @@ def save_analysis_result(analysis_data: dict) -> dict:
             analysis_data.get("key_insights", ""),
             json.dumps(analysis_data.get("keywords", []), ensure_ascii=False),
             json.dumps(analysis_data.get("action_items", []), ensure_ascii=False),
+            json.dumps(analysis_data.get("deep_insight", {}), ensure_ascii=False),
             json.dumps(analysis_data.get("transcription", analysis_data.get("segments", [])), ensure_ascii=False),
             analysis_data.get("model_version", ""),
             analysis_data.get("pipeline_duration", 0),
@@ -651,6 +661,13 @@ def _parse_json(value) -> list:
 def _format_analysis(r: dict) -> dict:
     """Format analysis row เป็น dict ที่ frontend ใช้ได้"""
     brand_names = _parse_json(r.get("brand_names", "[]"))
+    # parse deep_insight (เป็น dict ไม่ใช่ list)
+    deep_insight_raw = r.get("deep_insight", "{}") or "{}"
+    try:
+        deep_insight = json.loads(deep_insight_raw) if isinstance(deep_insight_raw, str) else (deep_insight_raw if isinstance(deep_insight_raw, dict) else {})
+    except (json.JSONDecodeError, TypeError):
+        deep_insight = {}
+
     return {
         "analysis_id": str(r.get("analysis_id", "")),
         "file_id": r.get("file_id", ""),
@@ -674,6 +691,7 @@ def _format_analysis(r: dict) -> dict:
         "key_insights": r.get("key_insights", ""),
         "keywords": _parse_json(r.get("keywords", "[]")),
         "action_items": _parse_json(r.get("action_items", "[]")),
+        "deep_insight": deep_insight if isinstance(deep_insight, dict) else {},
         "transcription": _parse_json(r.get("segments", "[]")),
         "segments": _parse_json(r.get("segments", "[]")),
         "model_version": r.get("model_version", ""),

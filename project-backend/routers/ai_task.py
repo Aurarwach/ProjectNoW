@@ -141,6 +141,7 @@ async def _queue_worker():
                     "audio_duration_seconds": whisper_result.get("audio_duration_seconds", 0),
                     "key_insights": llama_result.get("key_insights", ""),
                     "keywords": llama_result.get("keywords", []),
+                    "deep_insight": result["summary"].get("deep_insight", {}),
                     "model_results": result["model_results"],
                     "created_by": created_by,
                 }

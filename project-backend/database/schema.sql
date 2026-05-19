@@ -168,6 +168,11 @@ CREATE TABLE IF NOT EXISTS audio_analyses (
     keywords            TEXT DEFAULT '[]',       -- JSON array
     action_items        TEXT DEFAULT '[]',       -- JSON array
 
+    -- Deep customer insight (second-pass AI) — JSON blob
+    -- รูปแบบ: {customer_need, pain_point, root_cause, expectation,
+    --          risk_level, recommended_action, recommended_steps, confidence}
+    deep_insight        TEXT DEFAULT '{}',
+
     -- Transcription segments (Whisper timestamps)
     segments            TEXT DEFAULT '[]',       -- JSON array of {id, start, end, text}
 

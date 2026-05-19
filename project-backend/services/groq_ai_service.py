@@ -856,6 +856,191 @@ Intent ที่เป็นไปได้:
 
 
 # =============================================================================
+# STEP 2.6: Llama — Deep Customer Insight (Second-Pass)
+# =============================================================================
+
+async def groq_llama_deep_insight(
+    file_id: str,
+    transcript: str,
+    base_analysis: dict = None,
+) -> dict:
+    """
+    Second-pass AI analysis: ขุดลึก customer insight จาก transcript
+    โดยไม่ rewrite ผลการวิเคราะห์เดิม — แค่เพิ่มข้อมูล insight ให้ละเอียดขึ้น
+
+    Returns:
+        {
+            "customer_need": str,
+            "pain_point": str,
+            "root_cause": str,
+            "expectation": str,
+            "risk_level": "low" | "medium" | "high",
+            "recommended_action": str,   # detailed text
+            "recommended_steps": [str],  # หั่น recommended_action เป็น list (post-process)
+            "confidence": int (0-100),
+        }
+    """
+    start_time = datetime.now()
+
+    if not GROQ_AVAILABLE or not _ALL_API_KEYS:
+        return {
+            "customer_need": "",
+            "pain_point": "",
+            "root_cause": "",
+            "expectation": "",
+            "risk_level": "low",
+            "recommended_action": "",
+            "recommended_steps": [],
+            "confidence": 0,
+            "status": "skipped",
+        }
+
+    loop = asyncio.get_event_loop()
+
+    # ★ Prompt ตาม spec ที่ user กำหนด
+    system_prompt = """You are a Thai customer insight analyst.
+
+Your task is to extract the customer's real need from the conversation.
+
+Do NOT rewrite or change the existing base analysis.
+Do NOT summarize the conversation again.
+Focus only on deeper customer insight.
+Write every text field in Thai. Keep brand names, product names, model names,
+order numbers, and serial numbers exactly as they appear.
+Only risk_level must stay in English as one of: low, medium, high.
+Return JSON only:
+{
+  "customer_need": "",
+  "pain_point": "",
+  "root_cause": "",
+  "expectation": "",
+  "risk_level": "low|medium|high",
+  "recommended_action": "",
+  "confidence": 0
+}
+
+Rules:
+- customer_need = สิ่งที่ลูกค้าต้องการจริงในประโยคเดียวที่รวมบริบท (เช่น "การคืนเงินที่ถูกต้องและรวดเร็วเนื่องจากปัญหาการชำระเงินที่ซับซ้อน") โดยควรรวม: สิ่งที่ลูกค้าต้องการ + เหตุผล/ปัญหาที่ทำให้ต้องการ
+- pain_point = ปัญหาหลักที่ลูกค้ากำลังเจอ (สั้น ๆ)
+- root_cause = สาเหตุที่น่าจะทำให้เกิดปัญหา (สั้น ๆ)
+- expectation = สิ่งที่ลูกค้าคาดหวังจากบริษัท (สั้น ๆ)
+- recommended_action = สิ่งที่บริษัทควรทำต่ออย่างเป็นขั้นตอน (ใส่เป็นข้อ ๆ ขึ้นต้นด้วยตัวเลข 1. 2. 3.)
+- confidence = 0 to 100
+- Be specific and actionable.
+- Avoid vague answers like "ปรับปรุงบริการ" or "ดูแลลูกค้าให้ดีขึ้น".
+- Use concise Thai that a customer service team can act on immediately.
+- Return valid JSON only"""
+
+    # สร้าง user prompt จาก transcript + base analysis เพื่อให้มี context
+    base_context = ""
+    if base_analysis:
+        base_context = f"""
+=== ผลวิเคราะห์เดิม (ใช้เป็นบริบทเท่านั้น ห้ามแก้ไข) ===
+- Intent: {base_analysis.get('intent', '-')}
+- Sentiment: {base_analysis.get('sentiment', '-')}
+- Brand: {', '.join(base_analysis.get('brand_names', []) or ['-'])}
+- QA Score: {base_analysis.get('qa_scoring', {}).get('final_score', '-')}/10
+- Summary: {base_analysis.get('summary_text', '-')}
+"""
+
+    user_prompt = f"""{base_context}
+=== Transcript ===
+{transcript}
+
+=== Task ===
+วิเคราะห์ลูกค้าเชิงลึก ส่งกลับ JSON ตามรูปแบบที่กำหนด"""
+
+    def _analyze():
+        c = _get_next_client()
+        chat_completion = c.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=LLAMA_MODEL,
+            temperature=0.2,
+            max_tokens=2048,
+            response_format={"type": "json_object"},
+        )
+        return chat_completion.choices[0].message.content
+
+    try:
+        raw_response = await loop.run_in_executor(None, lambda: _retry_on_rate_limit(_analyze))
+    except Exception as e:
+        print(f"⚠️ Deep insight failed: {e}")
+        return {
+            "customer_need": "",
+            "pain_point": "",
+            "root_cause": "",
+            "expectation": "",
+            "risk_level": "low",
+            "recommended_action": "",
+            "recommended_steps": [],
+            "confidence": 0,
+            "status": "failed",
+            "error": str(e),
+        }
+
+    # Parse JSON
+    try:
+        result = json.loads(raw_response)
+    except json.JSONDecodeError:
+        m = re.search(r'\{.*\}', raw_response, re.DOTALL)
+        if not m:
+            print(f"⚠️ Deep insight: cannot parse JSON")
+            return {
+                "customer_need": "",
+                "pain_point": "",
+                "root_cause": "",
+                "expectation": "",
+                "risk_level": "low",
+                "recommended_action": "",
+                "recommended_steps": [],
+                "confidence": 0,
+                "status": "parse_error",
+            }
+        result = json.loads(m.group())
+
+    # Normalize fields
+    risk = (result.get("risk_level", "low") or "low").lower()
+    if risk not in ("low", "medium", "high"):
+        risk = "low"
+
+    raw_action = (result.get("recommended_action", "") or "").strip()
+    # หั่น recommended_action เป็น steps — แยกตาม "1." "2." หรือ newline
+    steps: list = []
+    if raw_action:
+        # ลอง split ด้วย numbered pattern ก่อน: "1. xxx 2. yyy" หรือบรรทัด "1. xxx\n2. yyy"
+        numbered = re.split(r'(?:^|\s|\n)(?=\d+[.)\s])', raw_action)
+        steps = [s.strip().lstrip("0123456789.)-• ").strip() for s in numbered if s.strip()]
+        # ถ้า split ไม่ได้ ลอง split ด้วย newline
+        if len(steps) <= 1:
+            steps = [s.strip().lstrip("•-* ").strip() for s in raw_action.split("\n") if s.strip()]
+        # ถ้ายัง 1 ก้อน เก็บไว้ทั้งก้อน
+        if not steps:
+            steps = [raw_action]
+
+    confidence = int(result.get("confidence", 0) or 0)
+    confidence = max(0, min(100, confidence))
+
+    processing_time = (datetime.now() - start_time).total_seconds()
+    print(f"💡 Deep insight done: risk={risk} confidence={confidence} steps={len(steps)} ({processing_time:.1f}s)")
+
+    return {
+        "customer_need": result.get("customer_need", "") or "",
+        "pain_point": result.get("pain_point", "") or "",
+        "root_cause": result.get("root_cause", "") or "",
+        "expectation": result.get("expectation", "") or "",
+        "risk_level": risk,
+        "recommended_action": raw_action,
+        "recommended_steps": steps,
+        "confidence": confidence,
+        "status": "completed",
+        "processing_time_seconds": round(processing_time, 2),
+    }
+
+
+# =============================================================================
 # STEP 2.5: Llama — แก้ไข Transcript ให้ถูกต้อง
 # =============================================================================
 
@@ -1074,6 +1259,16 @@ async def run_groq_analysis_pipeline(
     if on_step_complete:
         await on_step_complete("llama", llama_result)
 
+    # ===== Step 3: Deep Customer Insight (second-pass AI) =====
+    await asyncio.sleep(DELAY_BETWEEN_STEPS)
+    print(f"  Step 3/3: Deep Customer Insight...")
+    deep_insight = await groq_llama_deep_insight(
+        file_id=file_id,
+        transcript=corrected_transcript,
+        base_analysis=llama_result,
+    )
+    print(f"  ✅ Step 3 done: risk={deep_insight.get('risk_level')}, confidence={deep_insight.get('confidence')}")
+
     pipeline_duration = (datetime.now() - pipeline_start).total_seconds()
     print(f"🏁 Pipeline DONE: {pipeline_duration:.1f}s total")
 
@@ -1098,10 +1293,12 @@ async def run_groq_analysis_pipeline(
             "brand_names": llama_result.get("brand_names", []),
             "product_category": llama_result["product_category"],
             "sale_channel": llama_result["sale_channel"],
+            "deep_insight": deep_insight,
         },
         "model_results": {
             "whisper": whisper_result,
             "llama": llama_result,
+            "deep_insight": deep_insight,
         },
     }
 
@@ -1232,6 +1429,16 @@ async def run_typhoon_pipeline(
     if on_step_complete:
         await on_step_complete("llama", llama_result)
 
+    # ===== Step 4: Deep Customer Insight (second-pass AI) =====
+    await asyncio.sleep(DELAY_BETWEEN_STEPS)
+    print(f"  Step 4/4: Deep Customer Insight...")
+    deep_insight = await groq_llama_deep_insight(
+        file_id=file_id,
+        transcript=corrected_transcript,
+        base_analysis=llama_result,
+    )
+    print(f"  ✅ Step 4 done: risk={deep_insight.get('risk_level')}, confidence={deep_insight.get('confidence')}")
+
     pipeline_duration = (datetime.now() - pipeline_start).total_seconds()
     print(f"🏁 Typhoon Pipeline DONE: {pipeline_duration:.1f}s total")
 
@@ -1271,9 +1478,11 @@ async def run_typhoon_pipeline(
             "brand_names": llama_result.get("brand_names", []),
             "product_category": llama_result["product_category"],
             "sale_channel": llama_result["sale_channel"],
+            "deep_insight": deep_insight,
         },
         "model_results": {
             "whisper": stt_result,  # ใช้ key เดิม "whisper" เพื่อ backward compat
             "llama": llama_result,
+            "deep_insight": deep_insight,
         },
     }
