@@ -1,7 +1,23 @@
 'use client';
 
 import Sidebar from '@/components/Sidebar';
-import { ArrowLeft, User, MapPin, ShieldCheck, PhoneCall, ExternalLink, Phone, Pencil, Hash, FileText } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  HelpCircle,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+  PhoneCall,
+  Plus,
+  Search,
+  ShieldCheck,
+  User,
+} from 'lucide-react';
+import Image from 'next/image';
 import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 
@@ -16,7 +32,6 @@ interface CustomerInfo {
   phone: string;
   gender: string;
   date_of_birth: string;
-  created_at: string;
 }
 
 interface Address {
@@ -54,6 +69,48 @@ interface CallRecord {
   key_insights: string;
 }
 
+interface AudioListRecord {
+  file_id: string;
+  name: string;
+  customer: string;
+  agent: string;
+  sentiment: string;
+  date: string;
+  call_direction: string;
+}
+
+interface WarrantyListRecord {
+  registration_id: number;
+  registration_no: string;
+  customer_id: number;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  status: string;
+  warranty_period_months: number;
+  date_of_purchase: string;
+  expiry_date: string;
+  model: string;
+  size: string;
+  brand_name: string;
+  category_name: string;
+  channel_name: string;
+}
+
+const cleanPhone = (phone?: string) => (phone || '').replace(/\D/g, '');
+
+const formatPhone = (phone?: string) => {
+  const cleaned = cleanPhone(phone);
+  if (cleaned.length === 10) return `${cleaned.slice(0, 3)}${cleaned.slice(3, 6)}${cleaned.slice(6)}`;
+  return phone || '-';
+};
+
+const getDateTime = (value?: string) => {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
 export default function CustomerDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -66,9 +123,95 @@ export default function CustomerDetailPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const fetchAllAudioFiles = async () => {
+      const perPage = 500;
+      let page = 1;
+      let totalPages = 1;
+      const files: AudioListRecord[] = [];
+
+      do {
+        const params = new URLSearchParams({
+          page: String(page),
+          per_page: String(perPage),
+        });
+        const res = await fetch(`${API_BASE}/api/v1/audio/list?${params}`);
+        if (!res.ok) throw new Error(`audio/list HTTP ${res.status}`);
+        const data = await res.json();
+        files.push(...(data.files || []));
+        totalPages = data.total_pages || 1;
+        page += 1;
+      } while (page <= totalPages);
+
+      return files;
+    };
+
+    const fetchPhoneDetail = async (phoneKey: string) => {
+      const phoneClean = cleanPhone(phoneKey);
+      const [files, customerRes, warrantyRes] = await Promise.all([
+        fetchAllAudioFiles(),
+        fetch(`${API_BASE}/api/v1/customers/list`),
+        fetch(`${API_BASE}/api/v1/customers/warranty-list`),
+      ]);
+
+      if (!customerRes.ok) throw new Error(`customers/list HTTP ${customerRes.status}`);
+      if (!warrantyRes.ok) throw new Error(`warranty-list HTTP ${warrantyRes.status}`);
+
+      const customerData = await customerRes.json();
+      const warrantyData = await warrantyRes.json();
+      const customers: CustomerInfo[] = customerData.customers || [];
+      const matchedCustomer = customers.find((item) => cleanPhone(item.phone) === phoneClean);
+      const phoneFiles = files
+        .filter((file) => cleanPhone(file.customer) === phoneClean)
+        .sort((a, b) => getDateTime(b.date) - getDateTime(a.date));
+      const phoneWarranties: Warranty[] = (warrantyData.warranties || [])
+        .filter((item: WarrantyListRecord) => cleanPhone(item.phone) === phoneClean)
+        .map((item: WarrantyListRecord) => ({
+          registration_id: item.registration_id,
+          registration_no: item.registration_no,
+          certificate_no: null,
+          brand_name: item.brand_name,
+          category_name: item.category_name,
+          model: item.model,
+          size: item.size,
+          channel_name: item.channel_name,
+          warranty_period_months: item.warranty_period_months,
+          date_of_purchase: item.date_of_purchase,
+          expiry_date: item.expiry_date,
+          status: item.status,
+        }));
+
+      setCustomer(matchedCustomer || {
+        customer_id: 0,
+        first_name: 'Customer',
+        last_name: formatPhone(phoneClean),
+        nick_name: null,
+        email: '',
+        phone: formatPhone(phoneClean),
+        gender: '',
+        date_of_birth: '',
+      });
+      setAddress(null);
+      setWarranties(phoneWarranties);
+      setCallHistory(phoneFiles.map((file) => ({
+        file_id: file.file_id,
+        original_filename: file.name,
+        call_direction: file.call_direction,
+        call_date: file.date,
+        agent_id: file.agent,
+        sentiment: file.sentiment,
+        summary_text: '',
+        key_insights: '',
+      })));
+    };
+
     const fetchDetail = async () => {
       setLoading(true);
       try {
+        if (customerId.startsWith('phone-')) {
+          await fetchPhoneDetail(customerId.replace(/^phone-/, ''));
+          return;
+        }
+
         const res = await fetch(`${API_BASE}/api/v1/customers/detail/${customerId}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -92,6 +235,8 @@ export default function CustomerDetailPage() {
       return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     } catch { return dateStr; }
   };
+
+  const hasWarranty = warranties.length > 0;
 
   const formatDateTime = (dateStr: string) => {
     if (!dateStr) return '-';
@@ -133,310 +278,234 @@ export default function CustomerDetailPage() {
     );
   }
 
-  /* __RETURN_PLACEHOLDER__ */
+  const addressSummary = [
+    address?.address_line,
+    address?.subdistrict,
+    address?.district,
+    address?.city_province,
+    address?.postcode,
+  ].filter(Boolean).join(' ') || '-';
+
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900" style={{ colorScheme: 'light' }}>
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto">
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-auto p-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="mx-auto max-w-[1280px] space-y-6">
+            <button
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-800 cursor-pointer"
+            >
+              <ArrowLeft size={16} /> Back
+            </button>
 
-          {/* Back button */}
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mb-5 cursor-pointer transition-colors"
-          >
-            <ArrowLeft size={16} /> Back
-          </button>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              <div className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-6 shadow-sm md:col-span-7">
+                <div className="relative z-10 flex flex-col gap-6 md:flex-row md:items-center">
+                  <div className="relative shrink-0">
+                    <div className="h-[90px] w-[90px] rounded-full bg-gradient-to-tr from-slate-200 to-slate-100 p-1">
+                      <div className="flex h-full w-full items-center justify-center rounded-full border-[3px] border-white bg-slate-50 text-slate-600 shadow-sm">
+                        <User size={40} />
+                      </div>
+                    </div>
+                    <div className="absolute bottom-1 right-1 h-5 w-5 rounded-full border-[3px] border-white bg-green-500 shadow-sm" />
+                  </div>
 
-          {/* ===================================================== */}
-          {/* Row 1 — Header: Avatar+Name | Warranties | Calls | Address */}
-          {/* ===================================================== */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-5">
-
-            {/* col 1-2: Avatar + Name + Phone */}
-            <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6">
-              <div className="flex items-center gap-5">
-                <div className="w-20 h-20 rounded-full bg-emerald-50 dark:bg-emerald-900/30 border-2 border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shrink-0">
-                  <User size={40} strokeWidth={1.5} />
+                  <div className="flex-1 space-y-4">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <h2 className="mb-1 text-2xl font-bold text-slate-800">{customer.first_name} {customer.last_name}</h2>
+                        {hasWarranty && (
+                          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                            <CheckCircle2 size={14} /> WARRANTY: มีประกัน {warranties.length}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-slate-800 cursor-pointer"
+                        >
+                          <Pencil size={14} /> แก้ไขข้อมูล
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 truncate">
-                    {customer.first_name} {customer.last_name}
-                  </h1>
-                  <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-2">เบอร์โทรศัพท์</p>
-                  <p className="text-lg font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2 mt-0.5">
-                    <Phone size={16} className="text-blue-500" />
-                    {customer.phone || '-'}
-                  </p>
+                <div className="pointer-events-none absolute right-0 top-0 -mr-20 -mt-20 h-64 w-64 rounded-full bg-slate-50 opacity-50 blur-3xl" />
+              </div>
+
+              {/* CALLS Card */}
+              <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-sm md:col-span-2 cursor-pointer transition-shadow hover:shadow-md">
+                <div className="h-10 w-10 flex items-center justify-center rounded-2xl bg-purple-50 text-purple-600 mb-6 shadow-sm">
+                  <Phone size={18} />
                 </div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">CALLS</p>
+                <p className="text-3xl font-black text-slate-800 mb-1">{callHistory.length}</p>
+                <p className="text-[10px] font-medium text-slate-500">ประวัติการติดต่อศูนย์บริการ</p>
+              </div>
+
+              {/* ADDRESS Card */}
+              <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-sm md:col-span-3 cursor-pointer transition-shadow hover:shadow-md">
+                <div className="h-10 w-10 flex items-center justify-center rounded-2xl bg-blue-50 text-blue-600 mb-6 shadow-sm">
+                  <MapPin size={18} />
+                </div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">ADDRESS</p>
+                <p className="text-sm font-semibold text-slate-800 leading-relaxed">{addressSummary}</p>
               </div>
             </div>
 
-            {/* col 3: Warranties */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
-              <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center text-emerald-500 dark:text-emerald-400 mb-2">
-                <ShieldCheck size={20} />
-              </div>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Warranties</p>
-              <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 leading-tight">{warranties.length}</p>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">รายการประกันสินค้าทั้งหมด</p>
-            </div>
 
-            {/* col 4: Calls */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
-              <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-xl flex items-center justify-center text-blue-500 dark:text-blue-400 mb-2">
-                <PhoneCall size={20} />
-              </div>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Calls</p>
-              <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 leading-tight">{callHistory.length}</p>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">ประวัติการติดต่อศูนย์บริการ</p>
-            </div>
 
-            {/* col 5: Address */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
-              <div className="w-10 h-10 bg-pink-50 dark:bg-pink-900/30 rounded-xl flex items-center justify-center text-pink-500 dark:text-pink-400 mb-2">
-                <MapPin size={20} />
-              </div>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Address</p>
-              {address ? (
-                <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed line-clamp-3">
-                  {address.address_line}
-                  {address.subdistrict && <>, {address.subdistrict}</>}
-                  {address.district && <>, {address.district}</>}
-                  {address.city_province && <> {address.city_province}</>}
-                  {address.postcode && <> {address.postcode}</>}
-                </p>
-              ) : (
-                <p className="text-xs text-slate-400 dark:text-slate-500">-</p>
-              )}
-            </div>
-          </div>
-
-          {/* ===================================================== */}
-          {/* Row 2 — 2 Columns: Personal Info | Warranty List      */}
-          {/* ===================================================== */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-
-            {/* ===== Left: Personal Info (col-span 1) ===== */}
-            <div className="lg:col-span-1 space-y-4">
-
-              {/* ข้อมูลส่วนตัว */}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">ข้อมูลส่วนตัว</h3>
-                  <button className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 cursor-pointer transition-colors">
-                    <Pencil size={11} />
-                    แก้ไขข้อมูล
+            <div className={`grid grid-cols-1 gap-6 ${hasWarranty ? 'lg:grid-cols-3' : ''}`}>
+              <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-8 shadow-sm lg:col-span-1">
+                <div className="mb-6 flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-800">ข้อมูลส่วนตัว</h3>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 cursor-pointer"
+                  >
+                    <Pencil size={14} /> แก้ไขข้อมูล
                   </button>
                 </div>
-
-                <div className="space-y-4 text-[12px]">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                    <div>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 flex items-center gap-1">
-                        <User size={10} /> FIRST NAME / ชื่อ
-                      </p>
-                      <p className="text-slate-800 dark:text-slate-100 font-semibold">{customer.first_name || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 flex items-center gap-1">
-                        <User size={10} /> LAST NAME / นามสกุล
-                      </p>
-                      <p className="text-slate-800 dark:text-slate-100 font-semibold">{customer.last_name || '-'}</p>
-                    </div>
-                  </div>
-
+                
+                <div className="grid grid-cols-2 gap-y-6 gap-x-4">
                   <div>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">NICKNAME / ชื่อเล่น</p>
-                    <p className="text-slate-800 dark:text-slate-100 font-semibold">{customer.nick_name || '-'}</p>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70 flex items-center gap-1"><User size={12}/> FIRST NAME / ชื่อ</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.first_name || '-'}</p>
                   </div>
-
                   <div>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 flex items-center gap-1">
-                      <Phone size={10} /> PHONE / เบอร์โทร
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">LAST NAME / นามสกุล</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.last_name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">@ NICKNAME / ชื่อเล่น</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.nick_name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">PHONE / เบอร์โทร</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.phone || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70 flex items-center gap-1"><User size={12}/> GENDER / เพศ</p>
+                    <p className="text-sm font-semibold text-slate-800">{formatGender(customer.gender)}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70 flex items-center gap-1"><CalendarDays size={12}/> BIRTHDAY / วันเกิด</p>
+                    <p className="text-sm font-semibold text-slate-800">{formatDate(customer.date_of_birth)}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70 flex items-center gap-1"><Mail size={12}/> EMAIL / อีเมล</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.email || '-'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70 flex items-center gap-1"><MapPin size={12}/> ADDRESS / ที่อยู่</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {address?.address_line || '-'}
                     </p>
-                    <p className="text-slate-800 dark:text-slate-100 font-semibold">{customer.phone || '-'}</p>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                    <div>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">GENDER / เพศ</p>
-                      <p className="text-slate-800 dark:text-slate-100 font-semibold">{formatGender(customer.gender)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">BIRTHDAY / วันเกิด</p>
-                      <p className="text-slate-800 dark:text-slate-100 font-semibold">{formatDate(customer.date_of_birth)}</p>
-                    </div>
-                  </div>
-
                   <div>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">EMAIL / อีเมล</p>
-                    <p className="text-slate-800 dark:text-slate-100 font-semibold break-all">{customer.email || '-'}</p>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">SUBDISTRICT / ตำบล</p>
+                    <p className="text-sm font-semibold text-slate-800">{address?.subdistrict || '-'}</p>
                   </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">DISTRICT / อำเภอ</p>
+                    <p className="text-sm font-semibold text-slate-800">{address?.district || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">PROVINCE / จังหวัด</p>
+                    <p className="text-sm font-semibold text-slate-800">{address?.city_province || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70">POSTCODE / รหัสไปรษณีย์</p>
+                    <p className="text-sm font-semibold text-slate-800">{address?.postcode || '-'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-600/70 flex items-center gap-1"><CalendarDays size={12}/> REGISTERED / ลงทะเบียนเมื่อ</p>
+                    <p className="text-sm font-semibold text-slate-800">-</p>
+                  </div>
+                </div>
+              </div>
 
-                  {address && (
-                    <>
-                      <div>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 flex items-center gap-1">
-                          <MapPin size={10} /> ADDRESS / ที่อยู่
-                        </p>
-                        <p className="text-slate-800 dark:text-slate-100 font-semibold">
-                          {address.address_line || '-'}
-                        </p>
+              {hasWarranty && (
+                <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-8 shadow-sm lg:col-span-2">
+                  <div className="mb-6 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 text-slate-500">
+                        <Image src="/waran.jpg" alt="Warranty" width={20} height={20} className="object-contain" style={{ filter: 'grayscale(100%) contrast(500%) brightness(120%)', mixBlendMode: 'multiply' }} />
                       </div>
-                      {(address.district || address.city_province) && (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                          {address.district && (
-                            <div>
-                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">DISTRICT / เขต-อำเภอ</p>
-                              <p className="text-slate-800 dark:text-slate-100 font-semibold">{address.district}</p>
-                            </div>
-                          )}
-                          {address.city_province && (
-                            <div>
-                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">PROVINCE / จังหวัด</p>
-                              <p className="text-slate-800 dark:text-slate-100 font-semibold">{address.city_province}</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {customer.created_at && (
-                    <div>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">REGISTERED / ลงทะเบียนเมื่อ</p>
-                      <p className="text-slate-800 dark:text-slate-100 font-semibold">
-                        {new Date(customer.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </p>
+                      <h3 className="text-lg font-semibold text-slate-800">รายการการรับประกันสินค้า</h3>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* ประวัติการติดต่อ */}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <PhoneCall size={16} className="text-blue-500" />
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">ประวัติการติดต่อ</h3>
-                  <span className="ml-auto px-2 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded-full">
-                    {callHistory.length}
-                  </span>
-                </div>
-
-                {callHistory.length > 0 ? (
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {callHistory.map((call) => (
-                      <div
-                        key={call.file_id}
-                        onClick={() => router.push(`/files/${call.file_id}`)}
-                        className="bg-slate-50 dark:bg-slate-900/40 rounded-lg p-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-transparent hover:border-blue-200 dark:hover:border-blue-700 transition-all cursor-pointer group"
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 cursor-pointer"
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-full ${
-                            call.call_direction === 'Inbound'
-                              ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                              : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
-                          }`}>
-                            {(call.call_direction || 'Unknown').toUpperCase()}
-                          </span>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500">{formatDateTime(call.call_date)}</span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">
-                          ID: {call.file_id}
-                        </p>
-                      </div>
-                    ))}
+                        <Plus size={14} /> Create ประกัน
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">ไม่มีประวัติการติดต่อ</p>
-                )}
-              </div>
-            </div>
 
-            {/* ===== Right: Warranty List (col-span 2) ===== */}
-            <div className="lg:col-span-2">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                    รายการประกันสินค้า <span className="text-slate-400 dark:text-slate-500">({warranties.length})</span>
-                  </h3>
-                </div>
-
-                {warranties.length === 0 ? (
-                  <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-12">ไม่มีข้อมูลการรับประกัน</p>
-                ) : (
                   <div className="space-y-3">
                     {warranties.map((w) => (
                       <div
                         key={w.registration_id}
-                        className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all"
+                        onClick={() => router.push(`/customers/warranty/${w.registration_id}`)}
+                        className="overflow-hidden rounded-2xl border border-slate-100 transition-shadow hover:shadow-md cursor-pointer"
                       >
-                        {/* Header */}
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                              {w.brand_name || 'Unknown'} {w.model ? ` - ${w.model}` : (w.category_name ? ` - ${w.category_name}` : '')}
-                            </h4>
-                            {w.size && (
-                              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">Size: {w.size}</p>
-                            )}
+                        <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/50 p-6 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-400 shadow-sm">
+                              <Image src="/waran.jpg" alt="Warranty" width={24} height={24} className="object-contain" style={{ filter: 'grayscale(100%) contrast(500%) brightness(120%)', mixBlendMode: 'multiply' }} />
+                            </div>
+                            <div>
+                              <h4 className="text-base font-medium text-slate-800">
+                                {w.brand_name || 'Unknown'} - {w.model || w.category_name || '-'}
+                              </h4>
+                              {w.size && <p className="mt-0.5 text-sm text-slate-500">Size: {w.size}</p>}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0 ml-2">
-                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                              w.status === 'ACTIVE' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' :
-                              w.status === 'EXPIRED' ? 'bg-red-50 dark:bg-red-900/30 text-red-500' :
-                              'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                            }`}>
-                              {w.status}
-                            </span>
-                            <button
-                              onClick={() => router.push(`/customers/warranty/${w.registration_id}`)}
-                              className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
-                            >
-                              <Pencil size={11} />
-                              Edit
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* ID badges */}
-                        <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-slate-100 dark:border-slate-700">
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[10px] font-mono font-bold rounded">
-                            <Hash size={10} />
-                            {w.registration_no || '-'}
+                          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-wider ${
+                            w.status === 'ACTIVE'
+                              ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                              : w.status === 'EXPIRED'
+                                ? 'border-red-100 bg-red-50 text-red-600'
+                                : 'border-slate-200 bg-slate-100 text-slate-500'
+                          }`}>
+                            {w.status}
                           </span>
-                          {w.certificate_no && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                              <FileText size={10} />
-                              {w.certificate_no}
-                            </span>
-                          )}
                         </div>
 
-                        {/* Fields */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-y-3 gap-x-4 text-[11px]">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-6 p-6 md:grid-cols-3">
                           <div>
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">DELIVERY DATE</p>
-                            <p className="font-semibold text-slate-700 dark:text-slate-200">
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Serial Code</p>
+                            <p className="text-sm font-semibold text-slate-800">{w.registration_no || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Product Code</p>
+                            <p className="text-sm font-semibold text-slate-800">{w.certificate_no || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Duration</p>
+                            <p className="text-sm font-semibold text-slate-800">
+                              {w.warranty_period_months ? `${w.warranty_period_months} เดือน` : '-'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Channel</p>
+                            <p className="text-sm font-semibold text-slate-800">{w.channel_name || '-'}</p>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Start Date</p>
+                            <p className="text-sm font-medium text-slate-600">
                               {w.date_of_purchase
                                 ? new Date(w.date_of_purchase).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
                                 : '-'}
                             </p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">WARRANTY</p>
-                            <p className="font-semibold text-slate-700 dark:text-slate-200">
-                              {w.warranty_period_months ? `${w.warranty_period_months} Months` : '-'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">CHANNEL</p>
-                            <p className="font-semibold text-slate-700 dark:text-slate-200 truncate">{w.channel_name || '-'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">EXPIRY</p>
-                            <p className="font-semibold text-slate-700 dark:text-slate-200">
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Expiry Date</p>
+                            <p className="text-sm font-semibold text-red-600">
                               {w.expiry_date
                                 ? new Date(w.expiry_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
                                 : '-'}
@@ -446,11 +515,71 @@ export default function CustomerDetailPage() {
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
+
+          {/* Call History */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                <PhoneCall size={16} />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">ประวัติการโทร</h3>
+              <span className="text-xs text-slate-400 dark:text-slate-500 dark:text-slate-400 dark:text-slate-500">({callHistory.length} รายการ)</span>
+            </div>
+
+            {callHistory.length > 0 ? (
+              <div className="space-y-3">
+                {callHistory.map((call, idx) => (
+                  <div
+                    key={call.file_id}
+                    onClick={() => router.push(`/files/${call.file_id}`)}
+                    className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-transparent dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition-all cursor-pointer group"
+                  >
+                    {/* Row 1: Direction, Agent, Sentiment, Date */}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-slate-400 dark:text-slate-500 font-medium w-5">{idx + 1}</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                          call.call_direction === 'Inbound'
+                            ? 'bg-green-50 text-green-600'
+                            : 'bg-orange-50 text-orange-600'
+                        }`}>
+                          {call.call_direction || 'Unknown'}
+                        </span>
+                        <span className="text-sm text-slate-600 dark:text-slate-300 dark:text-slate-600">{call.agent_id || '-'}</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                          call.sentiment?.toUpperCase() === 'POSITIVE' ? 'bg-emerald-50 text-emerald-500' :
+                          call.sentiment?.toUpperCase() === 'NEGATIVE' ? 'bg-red-50 text-red-500' :
+                          'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                        }`}>
+                          {(call.sentiment || 'NEUTRAL').toUpperCase()}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 dark:text-slate-400 dark:text-slate-500">{formatDateTime(call.call_date)}</span>
+                    </div>
+
+                    {/* Row 2: Key Insights */}
+                    {call.key_insights && (
+                      <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed pl-8">
+                        💡 {call.key_insights}
+                      </p>
+                    )}
+                    {!call.key_insights && call.summary_text && (
+                      <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed pl-8">
+                        {call.summary_text}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400 dark:text-slate-500 dark:text-slate-400 dark:text-slate-500">ไม่มีประวัติการโทร</p>
+            )}
           </div>
 
+          </div>
         </div>
       </main>
     </div>

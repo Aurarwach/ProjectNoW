@@ -1,18 +1,84 @@
 'use client';
 
 import Sidebar from '@/components/Sidebar';
-import { ArrowLeft, ShieldCheck, User, MapPin, FileImage, MessageSquare } from 'lucide-react';
+import { ArrowLeft, User, MapPin, FileImage, MessageSquare } from 'lucide-react';
 import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const WARRANTY_ICON_STYLE = { 
+  backgroundImage: "url('/waran.jpg')",
+  filter: "grayscale(100%) contrast(500%) brightness(120%)",
+  mixBlendMode: "multiply" as const
+};
+
+interface WarrantyInfo {
+  registration_no: string;
+  ref_id?: string | null;
+  certificate_no?: string | null;
+  brand_name?: string | null;
+  category_name?: string | null;
+  model?: string | null;
+  size?: string | null;
+  sku?: string | null;
+  serial_no?: string | null;
+  label_no?: string | null;
+  warranty_period_months?: number | null;
+  date_of_purchase?: string | null;
+  date_of_delivery?: string | null;
+  channel_name?: string | null;
+  order_number?: string | null;
+  expiry_date?: string | null;
+  remark?: string | null;
+  status: string;
+  created_at: string;
+}
+
+interface WarrantyCustomer {
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  gender?: string | null;
+  date_of_birth?: string | null;
+}
+
+interface WarrantyAddress {
+  address_line?: string | null;
+  subdistrict?: string | null;
+  district?: string | null;
+  city_province?: string | null;
+  postcode?: string | null;
+}
+
+interface WarrantyProof {
+  proof_id: number | string;
+  file_type?: string | null;
+}
+
+interface WarrantyActivity {
+  activity_id: number | string;
+  admin_name?: string | null;
+  is_internal_note?: boolean;
+  created_at?: string | null;
+  comment?: string | null;
+  attached_file_url?: string | null;
+}
+
+interface WarrantyDetailData {
+  warranty: WarrantyInfo;
+  customer?: WarrantyCustomer | null;
+  address?: WarrantyAddress | null;
+  proofs?: WarrantyProof[];
+  activities?: WarrantyActivity[];
+}
 
 export default function WarrantyDetailPage() {
   const router = useRouter();
   const params = useParams();
   const regId = params.id as string;
 
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<WarrantyDetailData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,14 +97,14 @@ export default function WarrantyDetailPage() {
     fetchData();
   }, [regId]);
 
-  const formatDate = (d: string) => {
+  const formatDate = (d?: string | null) => {
     if (!d || d === 'N/A') return 'N/A';
     try {
       return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     } catch { return d; }
   };
 
-  const formatDateTime = (d: string) => {
+  const formatDateTime = (d?: string | null) => {
     if (!d) return '-';
     try {
       const dt = new Date(d);
@@ -49,10 +115,10 @@ export default function WarrantyDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-slate-50 dark:bg-slate-800">
+      <div className="flex h-screen bg-[#F8FAFC] text-slate-900" style={{ colorScheme: 'light' }}>
         <Sidebar />
         <main className="flex-1 p-6 flex items-center justify-center">
-          <p className="text-slate-400 dark:text-slate-500 text-sm">กำลังโหลดข้อมูล...</p>
+          <p className="text-sm font-medium text-slate-400">กำลังโหลดข้อมูล...</p>
         </main>
       </div>
     );
@@ -60,10 +126,10 @@ export default function WarrantyDetailPage() {
 
   if (!data?.warranty) {
     return (
-      <div className="flex h-screen bg-slate-50 dark:bg-slate-800">
+      <div className="flex h-screen bg-[#F8FAFC] text-slate-900" style={{ colorScheme: 'light' }}>
         <Sidebar />
         <main className="flex-1 p-6 flex items-center justify-center">
-          <p className="text-slate-400 dark:text-slate-500 text-sm">ไม่พบข้อมูลการรับประกัน</p>
+          <p className="text-sm font-medium text-slate-400">ไม่พบข้อมูลการรับประกัน</p>
         </main>
       </div>
     );
@@ -96,47 +162,56 @@ export default function WarrantyDetailPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFC] text-slate-900" style={{ colorScheme: 'light' }}>
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-3xl mx-auto">
+      <main className="flex-1 overflow-auto p-6">
+        <div className="mx-auto max-w-full space-y-6">
 
           {/* Back */}
           <button
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mb-6 cursor-pointer transition-colors"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-500 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600"
           >
             <ArrowLeft size={16} /> Back
           </button>
 
           {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">#{w.registration_no}</h1>
-              <span className={`px-3 py-1 text-xs font-bold rounded-full ${
-                w.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-600' :
-                w.status === 'EXPIRED' ? 'bg-red-50 text-red-500' :
-                'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-              }`}>
-                {w.status}
-              </span>
+          <div className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+            <div className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-indigo-50 blur-2xl" />
+            <div className="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="h-16 w-16 shrink-0 rounded-[1.25rem] bg-white bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
+                <div>
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[#818CF8]">Warranty Detail</p>
+                  <h1 className="text-xl font-bold tracking-tight text-[#0F172A]">#{w.registration_no}</h1>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  w.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100' :
+                  w.status === 'EXPIRED' ? 'bg-red-50 text-red-500 ring-1 ring-red-100' :
+                  'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
+                }`}>
+                  {w.status}
+                </span>
+                <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-100">
+                  Created {formatDateTime(w.created_at)}
+                </span>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 dark:text-slate-500 dark:text-slate-400 dark:text-slate-500">Created {formatDateTime(w.created_at)}</p>
           </div>
 
           {/* Warranty Information */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6 mb-6">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-8 h-8 bg-amber-50 rounded-full flex items-center justify-center text-amber-600">
-                <ShieldCheck size={16} />
-              </div>
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Warranty Information</h2>
+          <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-white bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
+              <h2 className="text-sm font-bold text-slate-800">Warranty Information</h2>
             </div>
-            <div className="space-y-0">
+            <div className="grid gap-2 sm:grid-cols-2">
               {warrantyFields.map(([label, value], idx) => (
-                <div key={label as string} className={`flex py-3 px-4 ${idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-700/40' : ''} rounded-lg`}>
-                  <span className="w-44 shrink-0 text-sm text-slate-500 dark:text-slate-400">{label}</span>
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{value}</span>
+                <div key={label as string} className={`rounded-xl px-4 py-3 ${idx % 2 === 0 ? 'bg-slate-50' : 'bg-white ring-1 ring-slate-100'}`}>
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+                  <p className="break-words text-sm font-medium text-slate-800">{value}</p>
                 </div>
               ))}
             </div>
@@ -144,14 +219,14 @@ export default function WarrantyDetailPage() {
 
           {/* Registrant Information */}
           {c && (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6 mb-6">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+            <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                   <User size={16} />
                 </div>
-                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Registrant Information</h2>
+                <h2 className="text-sm font-bold text-slate-800">Registrant Information</h2>
               </div>
-              <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {[
                   ['First Name', c.first_name],
                   ['Last Name', c.last_name],
@@ -161,21 +236,21 @@ export default function WarrantyDetailPage() {
                   ['Date of Birth', formatDate(c.date_of_birth)],
                 ].map(([label, value]) => (
                   <div key={label as string}>
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">{label}</p>
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{value || '-'}</p>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+                    <p className="text-sm font-medium text-slate-800">{value || '-'}</p>
                   </div>
                 ))}
               </div>
 
               {/* Address */}
               {addr && (
-                <div className="mt-5 pt-5 border-t border-slate-100">
-                  <div className="flex items-center gap-2 mb-3">
-                    <MapPin size={14} className="text-slate-400 dark:text-slate-500" />
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Address</p>
+                <div className="mt-5 border-t border-slate-100 pt-5">
+                  <div className="mb-3 flex items-center gap-2">
+                    <MapPin size={14} className="text-slate-400" />
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Address</p>
                   </div>
-                  <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-4">
-                    <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-sm leading-relaxed text-slate-700">
                       {addr.address_line}
                       {addr.subdistrict && `, ${addr.subdistrict}`}
                       {addr.district && `, ${addr.district}`}
@@ -189,53 +264,54 @@ export default function WarrantyDetailPage() {
           )}
 
           {/* Proof of Purchase */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6 mb-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 bg-violet-50 rounded-full flex items-center justify-center text-violet-600">
+          <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
                 <FileImage size={16} />
               </div>
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Proof / Evidence of Purchase</h2>
+              <h2 className="text-sm font-bold text-slate-800">Proof / Evidence of Purchase</h2>
             </div>
             {proofs.length > 0 ? (
               <div className="flex flex-wrap gap-3">
-                {proofs.map((p: any) => (
+                {proofs.map((p) => (
                   <a key={p.proof_id} href={`${API_BASE}/api/v1/customers/proof/${p.proof_id}`} target="_blank" rel="noopener noreferrer" className="block group">
-                    <div className="w-28 h-28 bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group-hover:border-blue-300 transition-colors">
+                    <div className="h-28 w-28 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition-colors group-hover:border-indigo-300">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={`${API_BASE}/api/v1/customers/proof/${p.proof_id}`}
                         alt="proof"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 truncate w-28">{p.file_type}</p>
+                    <p className="mt-1 w-28 truncate text-[10px] text-slate-400">{p.file_type}</p>
                   </a>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-slate-400 dark:text-slate-500 dark:text-slate-400 dark:text-slate-500">ไม่มีหลักฐานการซื้อ</p>
+              <p className="text-sm text-slate-400">ไม่มีหลักฐานการซื้อ</p>
             )}
           </div>
 
           {/* Activities */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6 mb-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 bg-cyan-50 rounded-full flex items-center justify-center text-cyan-600">
+          <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600">
                 <MessageSquare size={16} />
               </div>
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Activities</h2>
+              <h2 className="text-sm font-bold text-slate-800">Activities</h2>
             </div>
             {activities.length > 0 ? (
               <div className="space-y-3">
-                {activities.map((act: any) => (
-                  <div key={act.activity_id} className="bg-slate-50 dark:bg-slate-900 rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 dark:text-slate-600">
+                {activities.map((act) => (
+                  <div key={act.activity_id} className="rounded-xl bg-slate-50 p-4">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-slate-700">
                         {act.admin_name || 'System'}
                         {act.is_internal_note ? <span className="ml-2 text-[10px] text-amber-500 font-bold">Internal Note</span> : null}
                       </span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500">{formatDateTime(act.created_at)}</span>
+                      <span className="shrink-0 text-[10px] text-slate-400">{formatDateTime(act.created_at)}</span>
                     </div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300 dark:text-slate-600">{act.comment}</p>
+                    <p className="text-sm text-slate-600">{act.comment}</p>
                     {act.attached_file_url && (
                       <p className="text-xs text-blue-500 mt-1 truncate">📎 {act.attached_file_url}</p>
                     )}
@@ -243,7 +319,7 @@ export default function WarrantyDetailPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-slate-400 dark:text-slate-500 dark:text-slate-400 dark:text-slate-500">ยังไม่มีกิจกรรม</p>
+              <p className="text-sm text-slate-400">ยังไม่มีกิจกรรม</p>
             )}
           </div>
 

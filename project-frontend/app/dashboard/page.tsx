@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { useRouter } from 'next/navigation';
 import {
   FileAudio, CheckCircle2, RefreshCw, AlertTriangle,
-  RotateCw, Smile, Meh, Frown, Hash, Lightbulb, Tag,
-  Headphones, AlertCircle, Download
+  Smile, Meh, Frown, Lightbulb, Tag,
+  UserRound, AlertCircle, MoreHorizontal, Calendar, Download
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -34,7 +34,7 @@ interface InsightsData {
   agent_performance: AgentItem[];
 }
 
-type Period = 'day' | 'month' | 'year' | 'all';
+type Period = 'day' | 'month' | 'year';
 type BrandView = 'volume' | 'issues';
 
 const TOPIC_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316'];
@@ -46,8 +46,7 @@ const BRAND_COLORS = [
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<InsightsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>('day');
   const [brandView, setBrandView] = useState<BrandView>('volume');
   const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
 
@@ -58,81 +57,35 @@ export default function DashboardPage() {
   const [selectedDay,   setSelectedDay]   = useState<string>(todayISO);
   const [selectedMonth, setSelectedMonth] = useState<string>(monthISO);
   const [selectedYear,  setSelectedYear]  = useState<string>(yearStr);
-  const [availableYears, setAvailableYears] = useState<string[]>([yearStr]);
-
-  // ===== export =====
-  const [showExport, setShowExport] = useState(false);
-  const exportRef = useRef<HTMLDivElement>(null);
-
-  // โหลด available years ครั้งเดียวตอน mount
-  useEffect(() => {
-    (async () => {
-      // เริ่มจาก 5 ปีย้อนหลัง (รวมปีปัจจุบัน) — ผู้ใช้เลือกได้แม้ DB ยังไม่มีข้อมูลปีนั้น
-      const currentYear = new Date().getFullYear();
-      const fallback: string[] = [];
-      for (let y = currentYear; y >= currentYear - 4; y--) fallback.push(String(y));
-
-      try {
-        const res = await fetch(`${API_BASE}/api/v1/dashboard/insights/available-years`);
-        if (res.ok) {
-          const j = await res.json();
-          if (Array.isArray(j.years)) {
-            // รวมปีจาก DB + fallback แล้วเรียงใหม่→เก่า
-            const merged = Array.from(new Set([...j.years.map(String), ...fallback]))
-              .sort((a, b) => Number(b) - Number(a));
-            setAvailableYears(merged);
-            return;
-          }
-        }
-      } catch { /* fall through */ }
-      setAvailableYears(fallback);
-    })();
-  }, []);
-
-  // Close export menu เมื่อคลิกนอก
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setShowExport(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // ค่า date ที่จะส่งไป backend ตาม period
   const currentDateParam = useMemo(() => {
     if (period === 'day')   return selectedDay;
     if (period === 'month') return selectedMonth;
-    if (period === 'year')  return selectedYear;
-    return '';
+    return selectedYear;
   }, [period, selectedDay, selectedMonth, selectedYear]);
 
-  const fetchAll = async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async () => {
     try {
-      const insightsUrl = period === 'all'
-        ? `${API_BASE}/api/v1/dashboard/insights?period=all`
-        : `${API_BASE}/api/v1/dashboard/insights?period=${period}&date=${encodeURIComponent(currentDateParam)}`;
+      const insightsUrl = `${API_BASE}/api/v1/dashboard/insights?period=${period}&date=${encodeURIComponent(currentDateParam)}`;
       const insightsRes = await fetch(insightsUrl);
       if (insightsRes.ok) {
         const d: InsightsData = await insightsRes.json();
         setData(d);
-        if (!selectedBrand && d.brand_volume.length > 0) {
-          setSelectedBrand(d.brand_volume[0].brand);
-        }
+        setSelectedBrand((current) => current || d.brand_volume[0]?.brand || null);
       }
     } catch {
       setData(null);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [period, currentDateParam]);
 
   // ดึงข้อมูลใหม่เมื่อ period หรือค่า date เปลี่ยน
-  useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [period, currentDateParam]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchAll(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchAll]);
 
-  const C = 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700';
   const T = 'text-slate-800 dark:text-slate-100';
-  const S = 'text-slate-500 dark:text-slate-400';
   const S2 = 'text-slate-400 dark:text-slate-500';
 
   const kpi = data?.kpi;
@@ -183,11 +136,73 @@ export default function DashboardPage() {
     return 'text-red-500';
   };
 
-  // Export handler
-  const handleExport = (type: 'calls' | 'agents', format: 'xlsx' | 'csv') => {
-    const url = `${API_BASE}/api/v1/dashboard/export-${type}?format=${format}`;
-    window.open(url, '_blank');
-    setShowExport(false);
+  const formatDateInput = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const formatMonthInput = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  };
+
+  const selectedPeriodDate = useMemo(() => {
+    if (period === 'day') return new Date(`${selectedDay}T00:00:00`);
+    if (period === 'month') return new Date(`${selectedMonth}-01T00:00:00`);
+    return new Date(`${selectedYear}-01-01T00:00:00`);
+  }, [period, selectedDay, selectedMonth, selectedYear]);
+
+  const dateLabel = useMemo(() => {
+    if (period === 'day') {
+      return selectedPeriodDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    }
+    if (period === 'month') {
+      return selectedPeriodDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
+    if (period === 'year') {
+      return selectedPeriodDate.toLocaleDateString('en-US', { year: 'numeric' });
+    }
+    return '';
+  }, [period, selectedPeriodDate]);
+
+  const moveDate = (direction: -1 | 1) => {
+    const next = new Date(selectedPeriodDate);
+    if (period === 'day') {
+      next.setDate(next.getDate() + direction);
+      setSelectedDay(formatDateInput(next));
+    } else if (period === 'month') {
+      next.setMonth(next.getMonth() + direction);
+      setSelectedMonth(formatMonthInput(next));
+    } else if (period === 'year') {
+      next.setFullYear(next.getFullYear() + direction);
+      setSelectedYear(String(next.getFullYear()));
+    }
+  };
+
+  const resetCurrentPeriod = () => {
+    if (period === 'day') setSelectedDay(todayISO);
+    else if (period === 'month') setSelectedMonth(monthISO);
+    else setSelectedYear(yearStr);
+  };
+
+  const datePickerValue = period === 'day'
+    ? selectedDay
+    : period === 'month'
+      ? selectedMonth
+      : `${selectedYear}-01-01`;
+
+  const handleDatePickerChange = (value: string) => {
+    if (!value) return;
+    if (period === 'day') setSelectedDay(value);
+    else if (period === 'month') setSelectedMonth(value);
+    else setSelectedYear(value.slice(0, 4));
+  };
+
+  const handleExportAgentCsv = () => {
+    window.open(`${API_BASE}/api/v1/dashboard/export-agents?format=csv`, '_blank');
   };
 
   return (
@@ -197,283 +212,380 @@ export default function DashboardPage() {
         <div className="max-w-full mx-auto">
 
           {/* Header */}
-          <div className="flex justify-between items-center mb-5">
-            <div>
-              <h1 className={`text-xl font-bold ${T}`}>Voice Analytics Dashboard</h1>
-              <p className={`text-xs ${S2}`}>ข้อมูลจาก AI Analysis (real-time)</p>
+          <div className="mb-6 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+            <div className="relative">
+              <div className="absolute left-0 top-1 bottom-[34px] w-px bg-gradient-to-b from-indigo-400 to-transparent opacity-60"></div>
+              <svg className="absolute -left-[5.5px] top-0 w-3 h-3 text-indigo-500 opacity-80" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C12 0 12 10.5 24 12C24 12 12 13.5 12 24C12 24 12 13.5 0 12C0 12 12 10.5 12 0Z" />
+              </svg>
+              <div className="absolute left-0 bottom-8 w-1.5 h-1.5 rounded-full bg-indigo-500 -ml-[2px] opacity-80"></div>
+              <div className="absolute left-1.5 bottom-[34.5px] right-24 h-px bg-gradient-to-r from-indigo-400 via-indigo-200 to-transparent opacity-60"></div>
+
+              <svg className="absolute -right-4 top-0 w-32 h-24 text-indigo-300 pointer-events-none opacity-40 mix-blend-multiply hidden sm:block" viewBox="0 0 200 100" fill="none" stroke="currentColor">
+                <path d="M150,80 Q100,80 120,40 T180,20" strokeWidth="0.5" fill="none"/>
+                <path d="M130,90 Q80,90 90,50 T160,10" strokeWidth="0.5" fill="none"/>
+                <path d="M160,70 C130,50 180,30 190,50 C200,70 170,90 140,80" strokeWidth="0.5" fill="none"/>
+                <path d="M170,30 Q175,20 180,30 Q175,40 170,30Z" fill="currentColor" stroke="none" opacity="0.5"/>
+                <path d="M185,45 Q195,40 195,50 Q185,60 185,45Z" fill="currentColor" stroke="none" opacity="0.4"/>
+                <path d="M165,65 Q175,60 180,70 Q170,80 165,65Z" fill="currentColor" stroke="none" opacity="0.6"/>
+                <path d="M140,65 C140,65 140,75 145,75 C145,75 140,75 140,85 C140,85 140,75 135,75 C135,75 140,75 140,65Z" fill="#4F46E5" stroke="none"/>
+                <circle cx="160" cy="25" r="1.5" fill="currentColor"/>
+                <circle cx="150" cy="15" r="1" fill="currentColor"/>
+                <circle cx="185" cy="85" r="1.5" fill="currentColor"/>
+              </svg>
+
+              <div className="pl-6 pt-8 pb-4 relative z-10">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#4F46E5] leading-none">Voice</h1>
+                  <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#0F172A] leading-none">Analytics</h1>
+                  <span
+                    className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight leading-none ml-1 sm:ml-1.5"
+                    style={{
+                      background: 'linear-gradient(to right, #0F172A, #4F46E5, #8B5CF6)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                    }}
+                  >
+                    Dashboard
+                  </span>
+                </div>
+
+                <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-2 text-[10px] sm:text-xs font-bold tracking-[0.2em] text-[#818CF8] uppercase">
+                  <span>BACKEND ANALYSIS</span>
+                  <span className="text-indigo-200">|</span>
+                  <span>
+                    {period === 'day'
+                      ? selectedPeriodDate.toLocaleDateString('th-TH', { weekday: 'long' })
+                      : period === 'month'
+                        ? selectedPeriodDate.toLocaleDateString('th-TH', { month: 'long' })
+                        : `ปี ${selectedPeriodDate.toLocaleDateString('th-TH', { year: 'numeric' })}`}
+                  </span>
+                  <span className="text-indigo-200">|</span>
+                  <span>{dateLabel.toUpperCase()}</span>
+                </div>
+              </div>
             </div>
 
-            {/* ขวาบน: [Period+Date] [Export] [Refresh] — เว้นระยะกันชนธีม */}
-            <div className="flex items-center gap-2 mr-12">
+            {/* ขวาบน: Period + Date */}
+            <div className="flex flex-wrap items-center gap-3 md:justify-end">
 
               {/* Period Pills */}
-              <div className="flex items-center gap-0.5 bg-slate-50 dark:bg-slate-900/50 p-1 rounded-xl border border-slate-100 dark:border-slate-700">
+              <div className="flex h-10 bg-white border border-slate-200 rounded-xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden text-[13px]">
                 {([
-                  { v: 'day' as const, label: 'วัน' },
-                  { v: 'month' as const, label: 'เดือน' },
-                  { v: 'year' as const, label: 'ปี' },
-                  { v: 'all' as const, label: 'ทั้งหมด' },
+                  { v: 'day' as const, label: 'Day' },
+                  { v: 'month' as const, label: 'Month' },
+                  { v: 'year' as const, label: 'Year' },
                 ]).map(opt => (
                   <button
                     key={opt.v}
                     onClick={() => setPeriod(opt.v)}
-                    className={`px-3 py-1.5 text-[11px] font-bold rounded-lg cursor-pointer transition-colors ${
-                      period === opt.v
-                        ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
-                        : `${S} hover:bg-slate-100 dark:hover:bg-slate-800`
-                    }`}
+                    className={`px-4 font-bold transition-colors cursor-pointer ${period === opt.v ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50'} ${opt.v !== 'year' ? 'border-r border-slate-100' : ''}`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
 
-              {/* Date picker (เฉพาะ day / month / year) */}
-              {period === 'day' && (
-                <input
-                  type="date"
-                  value={selectedDay}
-                  onChange={(e) => setSelectedDay(e.target.value || todayISO)}
-                  className={`px-3 py-2 ${C} border rounded-xl text-xs ${T} outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900 cursor-pointer shadow-sm`}
-                />
-              )}
-              {period === 'month' && (
-                <input
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value || monthISO)}
-                  className={`px-3 py-2 ${C} border rounded-xl text-xs ${T} outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900 cursor-pointer shadow-sm`}
-                />
-              )}
-              {period === 'year' && (
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className={`px-3 py-2 ${C} border rounded-xl text-xs font-medium ${T} outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900 cursor-pointer shadow-sm`}
-                >
-                  {availableYears.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              )}
-
-              {/* Export Dropdown */}
-              <div className="relative" ref={exportRef}>
-                <button
-                  onClick={() => setShowExport(!showExport)}
-                  className={`flex items-center gap-2 px-3 py-2 ${C} border rounded-xl text-xs ${S} hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors shadow-sm`}
-                >
-                  <Download size={16} /> Export
-                </button>
-                {showExport && (
-                  <div className={`absolute right-0 mt-1 w-52 ${C} border rounded-xl shadow-lg z-10 overflow-hidden`}>
-                    <button onClick={() => handleExport('calls', 'xlsx')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors flex items-center gap-2">
-                      <Download size={14} /> Call Analysis (XLSX)
-                    </button>
-                    <button onClick={() => handleExport('calls', 'csv')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors flex items-center gap-2 border-t border-slate-100 dark:border-slate-700">
-                      <Download size={14} /> Call Analysis (CSV)
-                    </button>
-                    <button onClick={() => handleExport('agents', 'xlsx')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors flex items-center gap-2 border-t border-slate-100 dark:border-slate-700">
-                      <Download size={14} /> Agent Performance (XLSX)
-                    </button>
-                    <button onClick={() => handleExport('agents', 'csv')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors flex items-center gap-2 border-t border-slate-100 dark:border-slate-700">
-                      <Download size={14} /> Agent Performance (CSV)
-                    </button>
-                  </div>
-                )}
+              <div className="flex h-10 min-w-[260px] items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+                <button onClick={() => moveDate(-1)} className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer font-bold">-</button>
+                <label className="dashboard-date-picker-trigger relative flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-indigo-600 cursor-pointer" title="เลือกวันที่">
+                  <Calendar size={16} />
+                  <input
+                    type={period === 'month' ? 'month' : 'date'}
+                    value={datePickerValue}
+                    onChange={(e) => handleDatePickerChange(e.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    aria-label="เลือกวันที่"
+                  />
+                </label>
+                <span className="text-xs font-bold text-slate-700 min-w-[140px] text-center">{dateLabel}</span>
+                <button onClick={() => moveDate(1)} className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer font-bold">+</button>
               </div>
 
-              {/* Refresh */}
-              <button onClick={() => fetchAll()} className={`flex items-center gap-2 px-3 py-2 ${C} border rounded-xl text-xs ${S} hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors shadow-sm`}>
-                <RotateCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+              <button
+                onClick={() => resetCurrentPeriod()}
+                className="flex items-center justify-center w-10 h-10 bg-white border border-slate-200 rounded-xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:bg-indigo-50 transition-colors cursor-pointer text-slate-400 hover:text-indigo-600"
+                title="Current Period"
+              >
+                <RefreshCw size={18} />
+              </button>
+
+              <button
+                onClick={handleExportAgentCsv}
+                className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer"
+                title="Export Agent Performance CSV"
+              >
+                <Download size={16} />
+                Export
               </button>
             </div>
           </div>
 
           {/* Row 1: KPI Cards */}
-          <div className="grid grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             {[
-              { label: 'Total Files', value: kpi?.total_files || 0, icon: <FileAudio size={18} />, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30' },
-              { label: 'Analyzed',    value: kpi?.analyzed || 0,    icon: <CheckCircle2 size={18} />, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30' },
-              { label: 'Processing',  value: kpi?.processing || 0,  icon: <RefreshCw size={18} />, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/30' },
-              { label: 'Failed',      value: kpi?.failed || 0,      icon: <AlertTriangle size={18} />, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/30' },
+              { label: 'Total',       value: kpi?.total_files || 0, icon: (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src="/total.png" alt="Total Files" className="h-full w-full object-cover" />
+              ) },
+              { label: 'Analyzed',    value: kpi?.analyzed || 0,    icon: <CheckCircle2 size={30} strokeWidth={2} className="text-[#10B981] drop-shadow-[0_2px_8px_rgba(16,185,129,0.35)]" /> },
+              { label: 'Processing',  value: kpi?.processing || 0,  icon: (
+                <div className="flex h-12 w-12 items-center justify-center rounded-[18px] border border-[#FFE8B8] bg-[#FFF8EA] text-[#F59E0B] shadow-[0_8px_22px_-14px_rgba(245,158,11,0.9)]">
+                  <RefreshCw size={25} strokeWidth={2.7} className="animate-spin [animation-duration:2.6s]" />
+                </div>
+              ) },
+              { label: 'Failed',      value: kpi?.failed || 0,      icon: <AlertTriangle size={30} strokeWidth={2} className="text-[#EF4444] drop-shadow-[0_2px_8px_rgba(239,68,68,0.35)]" /> },
             ].map((card) => (
-              <div key={card.label} className={`${C} border rounded-xl p-4 shadow-sm`}>
-                <div className={`w-8 h-8 ${card.bg} rounded-lg flex items-center justify-center ${card.color} mb-2`}>{card.icon}</div>
-                <p className={`text-[10px] font-bold ${S} uppercase tracking-wider`}>{card.label}</p>
-                <p className={`text-2xl font-bold ${T}`}>{card.value}</p>
+              <div key={card.label} className="bg-white dark:bg-slate-800 rounded-[24px] p-6 flex items-center gap-5 shadow-[0_2px_15px_-3px_rgba(6,81,237,0.06)] border border-slate-100/80 dark:border-slate-700">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[20px] bg-white dark:bg-slate-900 shadow-[0_4px_20px_-3px_rgba(6,81,237,0.08)] ring-1 ring-slate-100/50 dark:ring-slate-700">
+                  {card.icon}
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">{card.label}</p>
+                  <h3 className="text-[28px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">{card.value}</h3>
+                </div>
               </div>
             ))}
           </div>
 
-          {/* Row 2: Sentiment + Topic Distribution */}
-          <div className="grid grid-cols-3 gap-4 mb-5">
+          {/* Second Row: Distributions */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-5">
 
             {/* Sentiment Distribution */}
-            <div className={`${C} border rounded-2xl p-5 shadow-sm col-span-2`}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="w-1 h-4 bg-orange-400 rounded" />
-                <h2 className={`text-sm font-bold ${T}`}>Sentiment Analysis Distribution</h2>
+            <div className="bg-white rounded-xl p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] lg:col-span-3">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-semibold text-lg flex items-center gap-2">
+                  <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-blue-500 to-indigo-600 shadow-sm"></div>
+                  Sentiment Analysis Distribution
+                </h3>
+                <MoreHorizontal className="text-slate-400" size={20} />
               </div>
-              <p className={`text-[11px] ${S2} mb-5`}>การกระจายของอารมณ์ลูกค้าจากสายทั้งหมด</p>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {[
-                  { label: 'POSITIVE', count: sentiments.positive, color: 'bg-emerald-500', bgLight: 'bg-emerald-50 dark:bg-emerald-900/10', icon: <Smile size={18} />, iconColor: 'text-emerald-500' },
-                  { label: 'NEUTRAL',  count: sentiments.neutral,  color: 'bg-slate-500',   bgLight: 'bg-slate-100 dark:bg-slate-700/50', icon: <Meh size={18} />,   iconColor: 'text-slate-500' },
-                  { label: 'NEGATIVE', count: sentiments.negative, color: 'bg-red-500',     bgLight: 'bg-red-50 dark:bg-red-900/10',     icon: <Frown size={18} />, iconColor: 'text-red-500' },
-                ].map((s) => (
-                  <div key={s.label} className="flex items-center gap-3">
-                    <div className="w-14 text-center shrink-0">
-                      <div className={`${s.iconColor} mx-auto mb-0.5 flex justify-center`}>{s.icon}</div>
-                      <p className={`text-[9px] font-bold ${S} tracking-wider`}>{s.label}</p>
-                    </div>
-                    <div className={`flex-1 h-7 ${s.bgLight} rounded-full overflow-hidden relative`}>
-                      <div
-                        className={`h-full ${s.color} rounded-full flex items-center justify-end pr-3 transition-all`}
-                        style={{ width: `${Math.max((s.count / sentMax) * 100, 6)}%`, minWidth: '40px' }}
-                      >
-                        <span className="text-[11px] font-bold text-white">{s.count}</span>
+                  { label: 'Positive', count: sentiments.positive, icon: Smile },
+                  { label: 'Neutral', count: sentiments.neutral, icon: Meh },
+                  { label: 'Negative', count: sentiments.negative, icon: Frown },
+                ].map((item, i) => {
+                  let barColor = '';
+                  let textColor = '';
+                  let bgColor = '';
+                  if (item.label === 'Positive') {
+                    barColor = 'bg-emerald-500';
+                    textColor = 'text-emerald-500';
+                    bgColor = 'bg-emerald-50';
+                  } else if (item.label === 'Negative') {
+                    barColor = 'bg-red-500';
+                    textColor = 'text-red-500';
+                    bgColor = 'bg-red-50';
+                  } else {
+                    barColor = 'bg-[#54657E]';
+                    textColor = 'text-[#54657E]';
+                    bgColor = 'bg-slate-100/60';
+                  }
+
+                  const Icon = item.icon;
+
+                  return (
+                    <div key={i} className="flex items-center gap-4">
+                      <div className="flex flex-col items-center justify-center w-16">
+                        <div className="w-10 h-10 rounded-full border border-slate-200 flex items-center justify-center bg-white shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] mb-1">
+                          <Icon size={18} className={textColor} />
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{item.label}</span>
+                      </div>
+
+                      <div className="flex-1 flex items-center pb-3">
+                        <div className={`w-full ${bgColor} rounded-lg h-8 relative flex items-center`}>
+                          <div
+                            className={`${barColor} h-full rounded-lg transition-all duration-700 flex items-center px-4 min-w-[2rem] shadow-sm`}
+                            style={{ width: `${Math.max((item.count / sentMax) * 100, 5)}%` }}
+                          >
+                            <span className="text-sm font-bold text-white z-10">{item.count}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
             {/* Topic Distribution */}
-            <div className={`${C} border rounded-2xl p-5 shadow-sm`}>
-              <div className="flex items-start justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-1 h-4 bg-pink-400 rounded" />
-                  <h2 className={`text-sm font-bold ${T}`}>Topic Distribution</h2>
+            <div className="bg-white rounded-xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] lg:col-span-2">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-lg flex items-center gap-2">
+                    <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-purple-500 to-pink-600 shadow-sm"></div>
+                    Topic Distribution
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-400">กดหัวข้อเพื่อดูไฟล์ที่อยู่ในกลุ่มนั้น</p>
                 </div>
-                <span className="px-2 py-0.5 text-[9px] font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 rounded-full">
+                <div className="shrink-0 rounded-full border border-purple-100 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700">
                   {data?.topic_distribution.length || 0} Topics
-                </span>
+                </div>
               </div>
-              <p className={`text-[11px] ${S2} mb-3`}>สัดส่วนหัวข้อที่ลูกค้าติดต่อเข้ามา</p>
 
               {topicTotal > 0 ? (
-                <div className="flex items-center gap-3">
-                  <div className="relative shrink-0">
-                    <svg width="120" height="120" viewBox="0 0 120 120">
-                      <circle cx="60" cy="60" r="45" fill="none" stroke="currentColor" className="text-slate-100 dark:text-slate-700" strokeWidth="18" />
-                      {donutSegments.map((seg, i) => (
-                        <path key={i} d={seg.d} fill="none" stroke={seg.color} strokeWidth="18" />
-                      ))}
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <p className={`text-lg font-bold ${T}`}>{topicTotal}</p>
-                      <p className={`text-[9px] ${S2}`}>Files</p>
+                <>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-[155px_minmax(0,1fr)]">
+                    <div className="relative flex h-[170px] items-center justify-center">
+                      <svg width="170" height="170" viewBox="0 0 120 120" className="origin-center animate-[spin_900ms_ease-out]">
+                        <circle cx="60" cy="60" r="45" fill="none" stroke="currentColor" className="text-slate-100" strokeWidth="18" />
+                        {donutSegments.map((seg, i) => (
+                          <path key={i} d={seg.d} fill="none" stroke={seg.color} strokeWidth="18" />
+                        ))}
+                      </svg>
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="text-base font-black leading-none text-slate-800">{topicTotal}</div>
+                          <div className="mt-1 text-[10px] font-semibold leading-none text-slate-400">Files</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[205px] space-y-1.5 overflow-y-auto pr-1">
+                      {donutSegments.map((seg, i) => {
+                        const percentage = topicTotal > 0 ? Math.round((seg.count / topicTotal) * 100) : 0;
+
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            suppressHydrationWarning
+                            onClick={() => router.push(`/files?topic=${encodeURIComponent(seg.topic)}`)}
+                            className="group w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50"
+                            title={`ดูไฟล์ที่มี topic: ${seg.topic}`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: seg.color }}></span>
+                              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700 group-hover:text-slate-900">
+                                {seg.topic}
+                              </span>
+                              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+                                {seg.count} files
+                              </span>
+                              <span className="w-10 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-400">
+                                {percentage}%
+                              </span>
+                            </div>
+                            <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className="h-full rounded-full"
+                                style={{ width: `${Math.max(percentage, 4)}%`, backgroundColor: seg.color }}
+                              ></div>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <div className="flex-1 min-w-0 max-h-[150px] overflow-y-auto space-y-1.5">
-                    {donutSegments.map((seg, i) => (
-                      <button
-                        key={i}
-                        onClick={() => router.push(`/files?topic=${encodeURIComponent(seg.topic)}`)}
-                        className="flex items-center gap-1.5 w-full text-left px-1.5 py-1 -mx-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700/50 cursor-pointer transition-colors group"
-                        title={`ดูไฟล์ที่มี topic: ${seg.topic}`}
-                      >
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
-                        <span className={`text-[10px] flex-1 truncate ${T} group-hover:text-blue-600 dark:group-hover:text-blue-400`}>{seg.topic}</span>
-                        <span className={`text-[10px] font-bold ${S2}`}>{seg.percentage}%</span>
-                      </button>
-                    ))}
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                    <div className="flex items-center justify-center py-5 text-center text-xs font-medium text-slate-400">
+                      เลือกหัวข้อด้านบนเพื่อไปดูไฟล์ที่อยู่ในหัวข้อนั้น
+                    </div>
                   </div>
-                </div>
+                </>
               ) : (
-                <div className="py-8 text-center">
-                  <p className={`text-xs ${S2}`}>ไม่มีข้อมูลในช่วงเวลานี้</p>
-                </div>
+                <div className="flex h-[260px] items-center justify-center text-sm text-slate-400">No Data</div>
               )}
             </div>
           </div>
 
           {/* Row 3: Keyword Frequency (Top 10) */}
-          <div className={`${C} border rounded-2xl p-5 shadow-sm mb-5`}>
-            <div className="flex items-center gap-2 mb-1">
-              <Hash className="text-blue-500" size={18} />
-              <h2 className={`text-sm font-bold ${T}`}>Keyword Frequency (Top 10)</h2>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 md:p-8 shadow-[0_2px_15px_-3px_rgba(6,81,237,0.08)] border border-slate-100 dark:border-slate-700 mb-5">
+            <div className="flex items-center gap-4 mb-8">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-[0_4px_15px_-3px_rgba(6,81,237,0.1)] ring-1 ring-slate-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/iconkey.png" alt="Keyword Frequency" className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Keyword Frequency (Top 10)</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">แสดง 10 คำที่ถูกกล่าวถึงมากที่สุดในช่วงเวลาที่เลือก</p>
+              </div>
             </div>
-            <p className={`text-[11px] ${S2} mb-5`}>แสดง 10 คำที่ถูกกล่าวถึงมากที่สุดในช่วงเวลาที่เลือก</p>
 
-            <div className="grid grid-cols-3 gap-6">
-              <div className="col-span-2 space-y-2">
+            <div className="flex flex-col lg:flex-row gap-10">
+              <div className="flex-1 space-y-5 py-2">
                 {(data?.keyword_frequency || []).length === 0 ? (
                   <p className={`text-xs ${S2} text-center py-8`}>ไม่มีข้อมูล keywords</p>
                 ) : (
                   data!.keyword_frequency.map((kw, i) => (
-                    <div key={kw.keyword} className="flex items-center gap-3">
-                      <span className={`w-5 text-[11px] font-bold ${S2} text-center shrink-0`}>{i + 1}</span>
-                      <span className={`w-28 text-[12px] ${T} truncate shrink-0`}>{kw.keyword}</span>
-                      <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-500 rounded-full transition-all"
-                          style={{ width: `${Math.max(kw.percentage, 2)}%` }}
-                        />
+                    <div key={kw.keyword} className="flex items-center gap-4">
+                      <span className="w-6 text-center text-[13px] font-bold text-blue-500">{i + 1}</span>
+                      <span className="w-32 text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{kw.keyword}</span>
+                      <div className="flex-1 flex items-center">
+                        <div className="w-full bg-slate-50 dark:bg-slate-700 rounded-full h-3.5">
+                          <div
+                            className="bg-[#4a85f6] h-3.5 rounded-full transition-all duration-1000"
+                            style={{ width: `${Math.max(kw.percentage, 2)}%` }}
+                          />
+                        </div>
                       </div>
-                      <span className={`text-[11px] font-bold ${S} w-10 text-right shrink-0`}>{kw.percentage}%</span>
+                      <span className="w-12 text-right text-sm font-bold text-[#4a85f6]">{kw.percentage}%</span>
                     </div>
                   ))
                 )}
               </div>
 
-              <div className="bg-blue-50/40 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-5 flex flex-col items-center justify-center text-center">
-                <div className="w-12 h-12 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center mb-3 shadow-sm">
-                  <Lightbulb size={20} className="text-blue-500" />
+              <div className="w-full lg:w-72 bg-gradient-to-b from-[#f8faff] dark:from-blue-900/10 to-white dark:to-slate-800 rounded-[24px] p-6 border border-blue-50 dark:border-blue-900/30 flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0 shadow-[0_4px_20px_-4px_rgba(74,133,246,0.05)]">
+                {/* Decorative background curves */}
+                <div className="absolute bottom-0 left-0 right-0 h-32 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNDQwIDMyMCI+PHBhdGggZmlsbD0iI2YxZjZmZiIgZmlsbC1vcGFjaXR5PSIxIiBkPSJNMCAyMjRsMTIwLTUuM2MxMjAtNS4zIDM2MC0xNiA2MDAtNS40IDIzOSAxMC43IDQ4MCA0Mi43IDYwMCA1OC43bDEyMCAxNnY5NkgwaHoiPjwvcGF0aD48L3N2Zz4=')] bg-cover bg-bottom opacity-70"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-24 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNDQwIDMyMCI+PHBhdGggZmlsbD0iI2U1ZjBwdIiIGZpbGwtb3BhY2l0eT0iMC42IiBkPSJNMCAxNjBsMTIwIDUuM2MxMjAgNS4zIDM2MCAxNiA2MDAgNS40IDIzOS0xMC43IDQ4MC00Mi43IDYwMC01OC43bDEyMC0xNnYxOTJIMHoiPjwvcGF0aD48L3N2Zz4=')] bg-cover bg-bottom"></div>
+
+                <div className="h-20 w-20 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-[0_8px_30px_rgba(74,133,246,0.15)] relative z-10 border border-blue-50 dark:border-blue-900/30">
+                  <div className="h-14 w-14 bg-blue-50 dark:bg-blue-900/40 rounded-full flex items-center justify-center">
+                    <Lightbulb size={28} className="text-[#4a85f6] fill-[#4a85f6]/20" strokeWidth={1.5} />
+                  </div>
                 </div>
-                <div className="px-3 py-1 bg-white dark:bg-slate-800 rounded-full border border-blue-100 dark:border-blue-900/30 mb-4">
-                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">Key Insight</span>
-                </div>
+
+                <span className="text-[11px] font-bold text-[#4a85f6] bg-white dark:bg-slate-800 border border-blue-100 dark:border-blue-900/50 px-4 py-1.5 rounded-full mb-6 relative z-10 shadow-sm">Key Insight</span>
+
                 {topKeyword ? (
-                  <>
-                    <p className={`text-xs ${S}`}>คำว่า <span className={`font-bold ${T}`}>&ldquo;{topKeyword.keyword}&rdquo;</span></p>
-                    <p className={`text-xs ${S} mt-1`}>ถูกกล่าวถึงมากที่สุด</p>
-                    <p className={`text-xs ${S}`}>คิดเป็น <span className="font-bold text-blue-600 dark:text-blue-400">{topKeyword.percentage}%</span> ของทั้งหมด</p>
-                  </>
+                  <p className="text-[15px] font-medium text-slate-600 dark:text-slate-300 leading-[1.8] relative z-10">
+                    คำว่า <span className="font-bold text-[#4a85f6] text-[17px]">&quot;{topKeyword.keyword}&quot;</span><br />
+                    ถูกกล่าวถึงมากที่สุด<br />
+                    คิดเป็น <span className="font-bold text-[#4a85f6] text-xl">{topKeyword.percentage}%</span> ของทั้งหมด
+                  </p>
                 ) : (
-                  <p className={`text-xs ${S2}`}>ยังไม่มี keyword ที่บ่งชี้</p>
+                  <p className={`text-xs ${S2} relative z-10`}>ยังไม่มี keyword ที่บ่งชี้</p>
                 )}
               </div>
             </div>
           </div>
 
           {/* Row 4: Find by Brand / Brand Issues */}
-          <div className={`${C} border rounded-2xl p-5 shadow-sm mb-5`}>
-            <div className="flex items-start justify-between mb-1">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 dark:border-slate-700/50 mb-6">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="w-1 h-4 bg-orange-400 rounded" />
-                  <h2 className={`text-sm font-bold ${T}`}>
-                    {brandView === 'volume' ? 'Find by Brand' : 'Brand Issues'}
-                  </h2>
-                </div>
-                <p className={`text-[11px] ${S2}`}>
+                <h3 className="font-semibold text-lg flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                  <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-orange-400 to-amber-500 shadow-sm"></div>
+                  {brandView === 'volume' ? 'Find by Brand' : 'Brand Issues'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-400 ml-3.5">
                   {brandView === 'volume'
                     ? 'ดูว่าแบรนด์ไหนถูกโทรมาบ่อยที่สุด'
                     : 'หัวข้อปัญหาที่พบบ่อยของแต่ละแบรนด์'}
                 </p>
               </div>
-              <div className="flex bg-slate-50 dark:bg-slate-900/50 p-1 rounded-lg">
+              <div className="flex bg-slate-50 border border-slate-100 dark:bg-slate-900/50 dark:border-slate-700 p-1 rounded-xl shadow-sm">
                 <button
                   onClick={() => setBrandView('volume')}
-                  className={`px-3 py-1.5 text-[11px] font-bold rounded-md cursor-pointer transition-colors ${
+                  className={`px-4 py-2 text-xs font-bold rounded-lg cursor-pointer transition-all duration-300 ${
                     brandView === 'volume'
-                      ? 'bg-white dark:bg-slate-700 text-orange-500 shadow-sm'
-                      : `${S} hover:bg-slate-100 dark:hover:bg-slate-800`
+                      ? 'bg-white dark:bg-slate-700 text-orange-500 shadow-[0_2px_8px_-2px_rgba(249,115,22,0.2)]'
+                      : `text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 dark:hover:bg-slate-800`
                   }`}
                 >
                   Find by Brand
                 </button>
                 <button
                   onClick={() => setBrandView('issues')}
-                  className={`px-3 py-1.5 text-[11px] font-bold rounded-md cursor-pointer transition-colors ${
+                  className={`px-4 py-2 text-xs font-bold rounded-lg cursor-pointer transition-all duration-300 ${
                     brandView === 'issues'
-                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : `${S} hover:bg-slate-100 dark:hover:bg-slate-800`
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-[0_2px_8px_-2px_rgba(37,99,235,0.2)]'
+                      : `text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 dark:hover:bg-slate-800`
                   }`}
                 >
                   Brand Issues
@@ -483,38 +595,48 @@ export default function DashboardPage() {
 
             {brandView === 'volume' && (
               <>
-                <div className="flex items-center gap-2 mt-4 mb-4">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full text-[11px] font-bold">
-                    <Tag size={11} />
+                <div className="flex items-center gap-3 mt-4 mb-6">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full text-xs font-bold border border-orange-100 dark:border-orange-800/30">
+                    <Tag size={13} />
                     {data?.brand_volume.length || 0} Brands
                   </span>
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-700/50 ${S} rounded-full text-[11px] font-bold`}>
-                    <FileAudio size={11} />
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 rounded-full text-xs font-bold border border-slate-200 dark:border-slate-600">
+                    <FileAudio size={13} />
                     {data?.brand_volume.reduce((s, b) => s + b.count, 0) || 0} Files
                   </span>
                 </div>
 
                 {(data?.brand_volume || []).length === 0 ? (
-                  <p className={`text-xs ${S2} text-center py-8`}>ยังไม่มีข้อมูลแบรนด์</p>
+                  <div className="flex flex-col items-center justify-center py-10 bg-slate-50/50 dark:bg-slate-900/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                    <Tag className="text-slate-300 mb-2" size={32} />
+                    <p className={`text-xs ${S2}`}>ยังไม่มีข้อมูลแบรนด์</p>
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {data!.brand_volume.map((b, i) => {
                       const c = BRAND_COLORS[i % BRAND_COLORS.length];
                       return (
-                        <div key={b.brand} className="bg-slate-50/50 dark:bg-slate-900/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50">
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[10px] font-bold ${S2}`}>{(i + 1).toString().padStart(2, '0')}</span>
-                              <span className={`text-[13px] font-bold tracking-wider ${T} uppercase`}>{b.brand}</span>
+                        <div key={b.brand} className="group bg-slate-50/50 dark:bg-slate-900/30 rounded-xl p-5 border border-slate-100 dark:border-slate-700/50 hover:bg-white dark:hover:bg-slate-800 hover:shadow-[0_8px_20px_-6px_rgba(0,0,0,0.05)] hover:border-slate-200 dark:hover:border-slate-600 transition-all duration-300">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center shrink-0">
+                                <span className={`text-[10px] font-bold text-slate-400 group-hover:text-amber-500 transition-colors`}>
+                                  {(i + 1).toString().padStart(2, '0')}
+                                </span>
+                              </div>
+                              <span className={`text-[14px] font-bold tracking-wider ${T} uppercase truncate`}>{b.brand}</span>
                             </div>
                             <div className="text-right">
-                              <p className={`text-xl font-bold ${T} leading-none`}>{b.count}</p>
-                              <p className={`text-[10px] ${S2}`}>files</p>
+                              <p className={`text-2xl font-black text-slate-800 dark:text-slate-100 leading-none`}>{b.count}</p>
+                              <p className={`text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-widest`}>files</p>
                             </div>
                           </div>
-                          <p className={`text-[10px] ${S2} mb-2`}>{b.percentage}% of visible recordings</p>
-                          <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${b.percentage}%`, backgroundColor: c.bar }} />
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-[11px] text-slate-500 font-medium">Of visible recordings</p>
+                            <p className="text-[11px] font-bold" style={{ color: c.bar }}>{b.percentage}%</p>
+                          </div>
+                          <div className="h-2 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden shadow-inner">
+                            <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${b.percentage}%`, backgroundColor: c.bar }} />
                           </div>
                         </div>
                       );
@@ -526,9 +648,11 @@ export default function DashboardPage() {
 
             {brandView === 'issues' && (
               <>
-                <div className="flex items-center gap-2 flex-wrap mt-4 mb-4">
+                <div className="flex items-center gap-2 flex-wrap mt-2 mb-6">
                   {(data?.brand_volume || []).length === 0 ? (
-                    <p className={`text-xs ${S2}`}>ยังไม่มีข้อมูลแบรนด์</p>
+                    <div className="w-full py-4 text-center">
+                      <p className={`text-xs ${S2}`}>ยังไม่มีข้อมูลแบรนด์</p>
+                    </div>
                   ) : (
                     data!.brand_volume.map((b, i) => {
                       const c = BRAND_COLORS[i % BRAND_COLORS.length];
@@ -537,15 +661,15 @@ export default function DashboardPage() {
                         <button
                           key={b.brand}
                           onClick={() => setSelectedBrand(b.brand)}
-                          className={`px-3 py-1.5 text-[11px] font-bold rounded-full border cursor-pointer transition-colors ${
+                          className={`px-4 py-2 text-[12px] font-bold rounded-full border cursor-pointer transition-all duration-300 shadow-sm ${
                             isSelected
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                              : `border-slate-200 dark:border-slate-600 ${S} hover:bg-slate-50 dark:hover:bg-slate-700`
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
+                              : 'border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300'
                           }`}
                         >
-                          <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ backgroundColor: c.bar }} />
+                          <span className="inline-block w-2.5 h-2.5 rounded-full mr-2 align-middle shadow-sm" style={{ backgroundColor: c.bar }} />
                           {b.brand}
-                          <span className={`ml-1.5 ${S2}`}>({b.count})</span>
+                          <span className="ml-1.5 opacity-60 text-[11px]">({b.count})</span>
                         </button>
                       );
                     })
@@ -553,109 +677,136 @@ export default function DashboardPage() {
                 </div>
 
                 {selectedBrand && currentBrandIssues.length > 0 ? (
-                  <div className="bg-slate-50/50 dark:bg-slate-900/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50">
-                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-200 dark:border-slate-700">
-                      <p className={`text-xs font-bold ${T}`}>หัวข้อปัญหาที่พบบ่อยของ <span className="text-blue-600 dark:text-blue-400">{selectedBrand}</span></p>
-                      <span className={`text-[10px] ${S2}`}>Top {currentBrandIssues.length}</span>
+                  <div className="bg-slate-50/70 dark:bg-slate-900/30 rounded-[20px] p-6 border border-slate-100 dark:border-slate-700/50">
+                    <div className="flex items-center justify-between mb-5 pb-4 border-b border-slate-200 dark:border-slate-700/70">
+                      <p className={`text-sm font-bold ${T}`}>หัวข้อปัญหาที่พบบ่อยของ <span className="text-blue-600 dark:text-blue-400 px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-100 dark:border-blue-800 ml-1">{selectedBrand}</span></p>
+                      <span className="text-[11px] font-bold text-slate-500 bg-white dark:bg-slate-800 px-3 py-1 rounded-full shadow-sm border border-slate-200 dark:border-slate-700">Top {currentBrandIssues.length}</span>
                     </div>
-                    <div className="space-y-2.5">
+                    <div className="space-y-4 px-2">
                       {currentBrandIssues.map((issue, i) => {
                         const pct = brandIssuesTotal > 0 ? Math.round((issue.count / brandIssuesTotal) * 100) : 0;
                         return (
-                          <div key={i} className="flex items-center gap-3">
-                            <span className={`w-5 text-[11px] font-bold ${S2} text-center`}>{i + 1}</span>
-                            <span className={`text-[12px] ${T} w-48 truncate shrink-0`}>{issue.topic}</span>
-                            <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.max(pct, 3)}%` }} />
+                          <div key={i} className="group flex items-center gap-4">
+                            <span className="w-6 h-6 rounded-full bg-slate-200/50 dark:bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">{i + 1}</span>
+                            <span className={`text-[13px] font-medium ${T} w-1/4 min-w-[120px] truncate shrink-0`}>{issue.topic}</span>
+                            <div className="flex-1 h-2.5 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden shadow-inner">
+                              <div className="h-full bg-gradient-to-r from-blue-400 to-blue-500 rounded-full transition-all duration-1000 ease-out" style={{ width: `${Math.max(pct, 3)}%` }} />
                             </div>
-                            <span className={`text-[11px] font-bold ${T} w-12 text-right`}>{issue.count} ครั้ง</span>
-                            <span className={`text-[10px] ${S2} w-10 text-right`}>{pct}%</span>
+                            <span className={`text-[12px] font-bold text-slate-700 dark:text-slate-200 w-16 text-right`}>{issue.count} ครั้ง</span>
+                            <span className="text-[11px] font-bold text-blue-500 w-12 text-right bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded aspect-auto">{pct}%</span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 ) : selectedBrand ? (
-                  <div className="bg-slate-50/50 dark:bg-slate-900/30 rounded-xl p-8 border border-slate-100 dark:border-slate-700/50 text-center">
-                    <AlertCircle size={20} className={`mx-auto mb-2 ${S2}`} />
-                    <p className={`text-xs ${S2}`}>ไม่มีข้อมูล topic ของแบรนด์ <span className="font-bold">{selectedBrand}</span></p>
+                  <div className="bg-slate-50/50 dark:bg-slate-900/30 rounded-[20px] py-12 border border-slate-100 dark:border-slate-700/50 text-center">
+                    <div className="w-12 h-12 bg-slate-200/50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <AlertCircle size={24} className="text-slate-400" />
+                    </div>
+                    <p className={`text-sm ${S2}`}>ไม่มีข้อมูล topic ของแบรนด์ <span className="font-bold text-slate-700 dark:text-slate-300">{selectedBrand}</span></p>
                   </div>
                 ) : (
-                  <p className={`text-xs ${S2} text-center py-8`}>เลือกแบรนด์เพื่อดูหัวข้อปัญหา</p>
+                  <div className="py-10 text-center border border-dashed border-slate-200 dark:border-slate-700 rounded-[20px]">
+                    <p className={`text-sm ${S2}`}>เลือกแบรนด์ด้านบนเพื่อดูหัวข้อปัญหา</p>
+                  </div>
                 )}
               </>
             )}
           </div>
 
           {/* Row 5: Agent Performance */}
-          <div className={`${C} border rounded-2xl shadow-sm overflow-hidden`}>
-            <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 dark:border-slate-700/50 mb-6 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="w-1 h-4 bg-orange-400 rounded" />
-                  <h2 className={`text-sm font-bold ${T}`}>Agent Performance</h2>
-                </div>
-                <p className={`text-[11px] ${S2}`}>คะแนน QA, CSAT และ sentiment ของแต่ละ Agent · กดเพื่อดูรายละเอียด</p>
+                <h3 className="font-semibold text-lg flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                  <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-blue-400 to-indigo-500 shadow-sm"></div>
+                  Agent Performance
+                </h3>
+                <p className="mt-1 text-xs text-slate-400 ml-3.5">คะแนน QA, CSAT และ sentiment ของแต่ละ Agent · กดเพื่อดูรายละเอียด</p>
               </div>
-              <span className={`text-[10px] font-bold ${S} bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-full`}>
-                <Headphones size={11} className="inline mr-1" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full">
+                <UserRound size={13} strokeWidth={2.6} />
                 {data?.agent_performance.length || 0} Agents
               </span>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left">
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className={`text-[10px] font-bold ${S2} uppercase tracking-wider bg-slate-50 dark:bg-slate-900/30 border-b border-slate-100 dark:border-slate-700`}>
-                    <th className="p-4 pl-6">Agent</th>
-                    <th className="p-4 text-center">Calls</th>
-                    <th className="p-4 text-center">QA</th>
-                    <th className="p-4 text-center">CSAT</th>
-                    <th className="p-4 text-center">Sentiment</th>
+                  <tr className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-900/30 border-b border-slate-100 dark:border-slate-700/50">
+                    <th className="p-4 pl-6 font-semibold">Agent</th>
+                    <th className="p-4 text-center font-semibold">Calls</th>
+                    <th className="p-4 text-center font-semibold">QA</th>
+                    <th className="p-4 text-center font-semibold">CSAT</th>
+                    <th className="p-4 text-center font-semibold">Sentiment</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                   {(data?.agent_performance || []).length === 0 ? (
-                    <tr><td colSpan={5} className={`p-12 text-center ${S2}`}>
-                      <Headphones size={28} className="mx-auto mb-2 opacity-40" />
-                      <p className="text-xs">ยังไม่มีข้อมูล agent</p>
-                    </td></tr>
+                    <tr>
+                      <td colSpan={5} className="py-16 text-center">
+                        <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100 dark:border-slate-700">
+                          <UserRound size={24} strokeWidth={2.6} className="text-slate-300 dark:text-slate-600" />
+                        </div>
+                        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">ยังไม่มีข้อมูล agent</p>
+                      </td>
+                    </tr>
                   ) : (
                     data!.agent_performance.map((a) => (
                       <tr
                         key={a.agent_id}
                         onClick={() => router.push(`/agents/${a.agent_id}`)}
-                        className="hover:bg-slate-50 dark:hover:bg-slate-700/40 cursor-pointer transition-colors group"
+                        className="hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer transition-colors group"
                       >
                         <td className="p-4 pl-6">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-[10px] shrink-0">
-                              {a.full_name
-                                ? `${a.full_name.split(' ')[0]?.charAt(0) || ''}${a.full_name.split(' ')[1]?.charAt(0) || ''}`
-                                : a.agent_id.slice(-2)}
+                            <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center text-[#54657E] dark:text-slate-400 shrink-0 shadow-inner">
+                              <UserRound size={22} strokeWidth={2.7} />
                             </div>
                             <div className="min-w-0">
-                              <p className={`text-sm font-semibold ${T} truncate group-hover:text-blue-600 dark:group-hover:text-blue-400`}>
+                              <p className="text-[13px] font-bold text-slate-700 dark:text-slate-200 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                                 {a.full_name || a.agent_id}
                               </p>
-                              <p className={`text-[10px] ${S2} font-mono`}>{a.agent_id}</p>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">{a.agent_id}</p>
                             </div>
                           </div>
                         </td>
-                        <td className={`p-4 text-center text-sm font-semibold ${T}`}>{a.total_calls}</td>
-                        <td className={`p-4 text-center text-base font-bold ${qaColor(a.avg_qa)}`}>
-                          {a.avg_qa !== null ? a.avg_qa : '-'}
-                          {a.avg_qa !== null && <span className={`text-[10px] font-normal ${S2} ml-0.5`}>/10</span>}
+                        <td className="p-4 text-center">
+                          <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-md border border-slate-100 dark:border-slate-700">
+                            {a.total_calls}
+                          </span>
                         </td>
-                        <td className={`p-4 text-center text-base font-bold ${csatColor(a.avg_csat)}`}>
-                          {a.avg_csat !== null ? a.avg_csat : '-'}
-                          {a.avg_csat !== null && <span className={`text-[10px] font-normal ${S2} ml-0.5`}>/5</span>}
+                        <td className={`p-4 text-center text-[15px] font-bold ${qaColor(a.avg_qa)}`}>
+                          {a.avg_qa !== null ? (
+                            <div className="flex items-baseline justify-center">
+                              {a.avg_qa}
+                              <span className="text-[10px] font-semibold opacity-50 ml-0.5">/10</span>
+                            </div>
+                          ) : '-'}
+                        </td>
+                        <td className={`p-4 text-center text-[15px] font-bold ${csatColor(a.avg_csat)}`}>
+                          {a.avg_csat !== null ? (
+                            <div className="flex items-baseline justify-center">
+                              {a.avg_csat}
+                              <span className="text-[10px] font-semibold opacity-50 ml-0.5">/5</span>
+                            </div>
+                          ) : '-'}
                         </td>
                         <td className="p-4">
-                          <div className="flex items-center justify-center gap-2 text-[11px] font-mono">
-                            <span className="text-emerald-600 dark:text-emerald-400" title="Positive">●{a.positive_calls}</span>
-                            <span className={S2} title="Neutral">●{a.neutral_calls}</span>
-                            <span className="text-red-500" title="Negative">●{a.negative_calls}</span>
+                          <div className="flex items-center justify-center gap-3 text-[11px] font-mono">
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500 text-white border border-emerald-500" title="Positive">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                              {a.positive_calls}
+                            </div>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-500 text-white border border-slate-500" title="Neutral">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                              {a.neutral_calls}
+                            </div>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500 text-white border border-red-500" title="Negative">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                              {a.negative_calls}
+                            </div>
                           </div>
                         </td>
                       </tr>

@@ -122,12 +122,12 @@ export default function AgentDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+      <div className="flex h-screen bg-[#F8FAFC] text-slate-900" style={{ colorScheme: 'light' }}>
         <Sidebar />
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <Loader2 size={32} className="animate-spin text-blue-600 mx-auto mb-3" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">กำลังโหลดข้อมูล Agent...</p>
+            <Loader2 size={32} className="animate-spin text-indigo-600 mx-auto mb-3" />
+            <p className="text-sm font-medium text-slate-500">กำลังโหลดข้อมูล Agent...</p>
           </div>
         </main>
       </div>
@@ -136,13 +136,13 @@ export default function AgentDetailPage() {
 
   if (error || !agent) {
     return (
-      <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+      <div className="flex h-screen bg-[#F8FAFC] text-slate-900" style={{ colorScheme: 'light' }}>
         <Sidebar />
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <AlertCircle size={32} className="text-red-500 mx-auto mb-3" />
-            <p className="text-sm text-red-600 dark:text-red-400">{error || 'ไม่พบ agent'}</p>
-            <button onClick={() => router.push('/agents')} className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline cursor-pointer">
+            <p className="text-sm font-medium text-red-600">{error || 'ไม่พบ agent'}</p>
+            <button onClick={() => router.push('/agents')} className="mt-4 text-sm font-bold text-indigo-600 hover:underline cursor-pointer">
               กลับไปหน้า Agents
             </button>
           </div>
@@ -152,125 +152,136 @@ export default function AgentDetailPage() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFC] text-slate-900" style={{ colorScheme: 'light' }}>
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-6xl mx-auto space-y-6">
+      <main className="flex-1 overflow-auto p-6">
+        <div className="mx-auto max-w-full space-y-6">
 
           {/* Back */}
           <button
             onClick={() => router.push('/agents')}
-            className="flex items-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer group"
+            className="group inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-500 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600"
           >
-            <ArrowLeft size={18} className="mr-1.5 group-hover:-translate-x-1 transition-transform" />
-            <span className="text-[13px] font-bold">Back to Agents</span>
+            <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-0.5" />
+            Back to Agents
           </button>
 
           {/* Header — Agent Info */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-700">
-            <div className="flex items-center gap-5">
-              <div className="w-16 h-16 bg-blue-50 dark:bg-blue-900/30 rounded-2xl flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 font-bold text-lg">
-                {agent.first_name.charAt(0)}{agent.last_name.charAt(0)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 truncate">
-                  {agent.full_name}
-                </h1>
-                <div className="flex items-center gap-4 mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                  <span className="font-mono flex items-center gap-1.5">
-                    <Hash size={13} className="text-slate-400 dark:text-slate-500" />
-                    {agent.agent_id}
-                  </span>
-                  {agent.phone && (
-                    <span className="font-mono flex items-center gap-1.5">
-                      <Phone size={13} className="text-slate-400 dark:text-slate-500" />
-                      {agent.phone}
-                    </span>
-                  )}
-                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                    agent.is_active
-                      ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                  }`}>
-                    {agent.is_active ? 'ACTIVE' : 'INACTIVE'}
-                  </span>
+          {/* Header — Agent Info */}
+          <div className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="pointer-events-none absolute right-0 top-0 -mr-20 -mt-20 h-64 w-64 rounded-full bg-slate-50 opacity-50 blur-3xl" />
+            <div className="relative z-10 flex flex-col gap-6 md:flex-row md:items-center">
+              <div className="relative shrink-0">
+                <div className="h-[90px] w-[90px] rounded-full bg-gradient-to-tr from-slate-200 to-slate-100 p-1">
+                  <div className="flex h-full w-full items-center justify-center rounded-full border-[3px] border-white bg-slate-50 text-xl font-black text-slate-600 shadow-sm">
+                    {agent.first_name.charAt(0)}{agent.last_name.charAt(0)}
+                  </div>
                 </div>
+                <div className={`absolute bottom-1 right-1 h-5 w-5 rounded-full border-[3px] border-white shadow-sm ${agent.is_active ? 'bg-green-500' : 'bg-slate-400'}`} />
               </div>
-              <div className="w-12 h-12 bg-slate-50 dark:bg-slate-700/40 rounded-xl flex items-center justify-center text-slate-400 dark:text-slate-500 shrink-0">
-                <Headphones size={22} />
+
+              <div className="flex-1 space-y-4">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h2 className="mb-1 text-2xl font-bold text-slate-800">{agent.full_name}</h2>
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-slate-500">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1 font-mono text-xs font-bold text-slate-600 ring-1 ring-slate-100">
+                        <Hash size={13} className="text-slate-400" />
+                        {agent.agent_id}
+                      </span>
+                      {agent.phone && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-mono text-xs font-bold text-emerald-700 ring-1 ring-emerald-100">
+                          <Phone size={13} className="text-emerald-500" />
+                          {agent.phone}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      className="flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-slate-800 cursor-pointer"
+                    >
+                      แก้ไขข้อมูล
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-4 shadow-sm">
-              <div className="w-8 h-8 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center text-blue-600 dark:text-blue-400 mb-2">
-                <FileAudio size={16} />
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+              <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shadow-sm">
+                <FileAudio size={18} />
               </div>
-              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Calls</p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-slate-100">{stats?.total_calls ?? 0}</p>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Total Calls</p>
+              <p className="text-3xl font-bold text-slate-800">{stats?.total_calls ?? 0}</p>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-4 shadow-sm">
-              <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-2">
-                <TrendingUp size={16} />
+            <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+              <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 shadow-sm">
+                <TrendingUp size={18} />
               </div>
-              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Avg QA</p>
-              <p className={`text-2xl font-bold ${qaColor(stats?.avg_qa ?? null)}`}>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Avg QA</p>
+              <p className={`text-3xl font-bold ${qaColor(stats?.avg_qa ?? null)}`}>
                 {stats?.avg_qa !== null && stats?.avg_qa !== undefined ? stats.avg_qa : '-'}
                 {stats?.avg_qa !== null && stats?.avg_qa !== undefined && (
-                  <span className="text-xs font-normal text-slate-400 dark:text-slate-500 ml-0.5">/10</span>
+                  <span className="ml-0.5 text-xs font-semibold opacity-50">/10</span>
                 )}
               </p>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-4 shadow-sm">
-              <div className="w-8 h-8 bg-amber-50 dark:bg-amber-900/30 rounded-lg flex items-center justify-center text-amber-600 dark:text-amber-400 mb-2">
-                <CheckCircle2 size={16} />
+            <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+              <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-sm">
+                <CheckCircle2 size={18} />
               </div>
-              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Avg CSAT</p>
-              <p className={`text-2xl font-bold ${csatColor(stats?.avg_csat ?? null)}`}>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Avg CSAT</p>
+              <p className={`text-3xl font-bold ${csatColor(stats?.avg_csat ?? null)}`}>
                 {stats?.avg_csat !== null && stats?.avg_csat !== undefined ? stats.avg_csat : '-'}
                 {stats?.avg_csat !== null && stats?.avg_csat !== undefined && (
-                  <span className="text-xs font-normal text-slate-400 dark:text-slate-500 ml-0.5">/5</span>
+                  <span className="ml-0.5 text-xs font-semibold opacity-50">/5</span>
                 )}
               </p>
             </div>
 
-            <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-4 shadow-sm">
-              <div className="w-8 h-8 bg-violet-50 dark:bg-violet-900/30 rounded-lg flex items-center justify-center text-violet-600 dark:text-violet-400 mb-2">
-                <MessageCircle size={16} />
+            <div className="flex flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+              <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 shadow-sm">
+                <MessageCircle size={18} />
               </div>
-              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sentiment</p>
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-1 flex gap-2">
-                <span className="text-emerald-600 dark:text-emerald-400">+{stats?.positive_calls ?? 0}</span>
-                <span className="text-slate-500 dark:text-slate-400">·{stats?.neutral_calls ?? 0}</span>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Sentiment</p>
+              <p className="mt-2 flex gap-3 text-sm font-bold text-slate-700">
+                <span className="text-emerald-600">+{stats?.positive_calls ?? 0}</span>
+                <span className="text-slate-500">·{stats?.neutral_calls ?? 0}</span>
                 <span className="text-red-500">-{stats?.negative_calls ?? 0}</span>
               </p>
             </div>
           </div>
 
           {/* Call Log */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+          <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm">
+            <div className="mb-6 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <FileAudio className="text-slate-800 dark:text-slate-100" size={20} />
-                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Call Log</h2>
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shadow-sm">
+                  <FileAudio size={18} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">Call Log</h3>
               </div>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-slate-100">
                 {calls.length} สาย
               </span>
             </div>
 
             {calls.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 dark:text-slate-500">
+              <div className="p-12 text-center text-slate-400">
                 <FileAudio size={32} className="mx-auto mb-2 opacity-50" />
-                <p className="text-sm font-medium">ยังไม่มีรายการสาย</p>
-                <p className="text-xs mt-1">รายการจะปรากฏเมื่อ agent นี้รับสายและระบบวิเคราะห์เสร็จ</p>
+                <p className="text-sm font-bold">ยังไม่มีรายการสาย</p>
+                <p className="mt-1 text-xs">รายการจะปรากฏเมื่อ agent นี้รับสายและระบบวิเคราะห์เสร็จ</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50 dark:divide-slate-700">
+              <div className="divide-y divide-slate-100">
                 {calls.map((call) => {
                   const sb = sentimentBadge(call.sentiment);
                   const stb = statusBadge(call.status);
@@ -278,15 +289,15 @@ export default function AgentDetailPage() {
                     <div
                       key={call.file_id}
                       onClick={() => router.push(`/files/${call.file_id}`)}
-                      className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/40 cursor-pointer transition-colors group"
+                      className="group cursor-pointer p-4 transition-colors hover:bg-indigo-50/30"
                     >
-                      <div className="flex items-start gap-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
                         {/* Date col */}
-                        <div className="w-32 shrink-0">
-                          <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        <div className="w-36 shrink-0">
+                          <p className="text-[11px] font-bold text-slate-600">
                             {formatDate(call.call_date)}
                           </p>
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
+                          <p className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-slate-400">
                             <Clock size={10} />
                             {formatDuration(call.duration_seconds)}
                           </p>
@@ -294,52 +305,52 @@ export default function AgentDetailPage() {
 
                         {/* Main info */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-full ${
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
                               call.call_direction === 'Inbound'
-                                ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                                ? 'bg-blue-50 text-blue-600'
                                 : call.call_direction === 'Outbound'
-                                  ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
-                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                                  ? 'bg-orange-50 text-orange-600'
+                                  : 'bg-slate-100 text-slate-500'
                             }`}>
                               {call.call_direction}
                             </span>
-                            <span className="text-sm font-mono text-slate-700 dark:text-slate-200">
+                            <span className="font-mono text-sm font-bold text-slate-700">
                               {call.customer_phone}
                             </span>
                             {call.brand_names && call.brand_names.length > 0 && (
                               <div className="flex gap-1">
                                 {call.brand_names.map((b, i) => (
-                                  <span key={i} className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[10px] font-bold rounded">
+                                  <span key={i} className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
                                     {b}
                                   </span>
                                 ))}
                               </div>
                             )}
                           </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate group-hover:text-slate-700 dark:group-hover:text-slate-200">
+                          <p className="truncate text-xs font-medium text-slate-500 group-hover:text-slate-700">
                             {call.intent || call.summary_text || call.original_filename}
                           </p>
                         </div>
 
                         {/* QA / CSAT */}
-                        <div className="flex items-center gap-4 shrink-0">
+                        <div className="flex shrink-0 items-center gap-4">
                           <div className="text-center">
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">QA</p>
+                            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">QA</p>
                             <p className={`text-sm font-bold ${qaColor(call.qa_score)}`}>
                               {call.qa_score !== null ? call.qa_score : '-'}
                             </p>
                           </div>
                           <div className="text-center">
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">CSAT</p>
+                            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">CSAT</p>
                             <p className={`text-sm font-bold ${csatColor(call.csat_score)}`}>
                               {call.csat_score !== null ? call.csat_score : '-'}
                             </p>
                           </div>
-                          <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full ${sb.cls}`}>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${sb.cls}`}>
                             {sb.label}
                           </span>
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${stb.cls}`}>
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-black ${stb.cls}`}>
                             {stb.icon}
                             {stb.label}
                           </span>

@@ -365,7 +365,7 @@ export default function FileAnalysisDetail() {
           {/* No Analysis State / Failed State */}
           {!analysis && (
             <div className={`${
-              analyzing ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' :
+              analyzing ? 'bg-blue-50 dark:bg-blue-900/20 border-slate-100 dark:border-slate-700' :
               (fileData as any)?.status === 'failed' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' :
               'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
             } border rounded-2xl p-8 text-center`}>
@@ -418,7 +418,7 @@ export default function FileAnalysisDetail() {
             <>
               {/* Re-analyzing banner */}
               {analyzing && (
-                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center gap-3">
+                <div className="bg-blue-50 border border-slate-100 rounded-2xl p-4 flex items-center gap-3">
                   <Loader2 size={20} className="text-blue-600 animate-spin shrink-0" />
                   <div>
                     <p className="text-sm font-bold text-blue-800">กำลังวิเคราะห์ใหม่...</p>
@@ -499,8 +499,8 @@ export default function FileAnalysisDetail() {
                         {/* ANOMALY */}
                         <div className={`rounded-xl p-4 border ${
                           isAnomaly
-                            ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-                            : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                            ? 'bg-red-50 dark:bg-red-900/20 border-slate-100 dark:border-slate-700'
+                            : 'bg-emerald-50 dark:bg-emerald-900/20 border-slate-100 dark:border-slate-700'
                         }`}>
                           <div className="flex items-center gap-1.5 mb-3">
                             <AlertCircle size={13} className={isAnomaly ? 'text-red-500' : 'text-emerald-500'} />
@@ -574,7 +574,7 @@ export default function FileAnalysisDetail() {
                   }[riskLevel];
 
                   return (
-                    <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/40">
+                    <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
                       {/* Header */}
                       <div className="flex items-start justify-between gap-3 mb-1">
                         <div className="flex items-center space-x-2">
@@ -597,7 +597,7 @@ export default function FileAnalysisDetail() {
 
                       {/* ลูกค้าต้องการอะไร (รวมบริบทไว้ในประโยคเดียว) */}
                       {customerNeed && (
-                        <div className="bg-white dark:bg-slate-800 border border-blue-100 dark:border-blue-900/40 rounded-xl p-4 mb-3">
+                        <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-4 mb-3">
                           <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">ลูกค้าต้องการอะไร</p>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-relaxed">
                             {customerNeed}
@@ -607,7 +607,7 @@ export default function FileAnalysisDetail() {
 
                       {/* สิ่งที่ควรทำต่อ */}
                       {steps.length > 0 && (
-                        <div className="bg-white dark:bg-slate-800 border border-blue-100 dark:border-blue-900/40 rounded-xl p-4">
+                        <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-4">
                           <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">สิ่งที่ควรทำต่อ</p>
                           <ol className="space-y-1.5">
                             {steps.map((item: string, i: number) => (
@@ -645,7 +645,7 @@ export default function FileAnalysisDetail() {
                       <div className="flex items-center space-x-3">
                         <button
                           onClick={skipBackward}
-                          className="w-7 h-7 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center justify-center cursor-pointer transition-colors shrink-0"
+                          className="transcript-audio-button w-7 h-7 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center justify-center cursor-pointer transition-colors shrink-0"
                           title="-10s"
                         >
                           <SkipBack size={14} />
@@ -658,7 +658,7 @@ export default function FileAnalysisDetail() {
                         </button>
                         <button
                           onClick={skipForward}
-                          className="w-7 h-7 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center justify-center cursor-pointer transition-colors shrink-0"
+                          className="transcript-audio-button w-7 h-7 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center justify-center cursor-pointer transition-colors shrink-0"
                           title="+10s"
                         >
                           <SkipForward size={14} />
@@ -719,7 +719,7 @@ export default function FileAnalysisDetail() {
                                 <div key={`seg-${idx}`} ref={isActive ? activeSegmentRef : null}
                                   onClick={() => seekTo(segStart)}
                                   className={`flex items-start gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 group ${
-                                    isActive ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 shadow-sm'
+                                    isActive ? 'bg-blue-50 dark:bg-blue-900/20 border border-slate-100 dark:border-slate-700 shadow-sm'
                                     : isPast ? 'opacity-50 hover:opacity-80 hover:bg-slate-50 dark:hover:bg-slate-700'
                                     : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                                   }`}>
@@ -872,11 +872,11 @@ export default function FileAnalysisDetail() {
                 </div>
 
                 {/* ========== Warranty / การรับประกัน ========== */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="bg-emerald-50/50 dark:bg-emerald-900/10 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-700">
                   <div className="flex items-center justify-between mb-5 pb-5 border-b border-slate-100 dark:border-slate-700">
                     <div className="flex items-center space-x-3">
-                      <ShieldCheck className="text-slate-800 dark:text-slate-100" size={22} />
-                      <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">การรับประกัน</h2>
+                      <ShieldCheck className="text-emerald-600 dark:text-emerald-400" size={22} />
+                      <h2 className="text-base font-bold text-emerald-800 dark:text-emerald-300">การรับประกัน</h2>
                     </div>
                     {matchedCustomer && warranties.length > 0 && (
                       <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold rounded-full">
@@ -910,7 +910,7 @@ export default function FileAnalysisDetail() {
                           <div
                             key={w.registration_id}
                             onClick={() => router.push(`/customers/warranty/${w.registration_id}`)}
-                            className="border border-slate-100 dark:border-slate-700 rounded-xl p-3 hover:border-blue-200 dark:hover:border-blue-700 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 cursor-pointer transition-colors group"
+                            className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 hover:border-slate-200 dark:hover:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer transition-colors group shadow-sm"
                           >
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div className="min-w-0 flex-1">

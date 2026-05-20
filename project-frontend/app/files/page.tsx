@@ -155,8 +155,8 @@ function FilesPageInner() {
 
   const getSentimentStyle = (sentiment: string) => {
     switch (sentiment?.toUpperCase()) {
-      case 'POSITIVE': return 'bg-emerald-50 text-emerald-500';
-      case 'NEGATIVE': return 'bg-red-50 text-red-500';
+      case 'POSITIVE': return 'bg-emerald-50 text-emerald-600';
+      case 'NEGATIVE': return 'bg-rose-50 text-rose-600';
       default: return 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400';
     }
   };
@@ -205,7 +205,7 @@ function FilesPageInner() {
   };
 
   const handleBatchDelete = async () => {
-    if (deleteConfirmText !== 'DELETE') return;
+    if (deleteConfirmText.trim() !== 'Delete') return;
     setDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/api/v1/audio/delete-batch`, {
@@ -317,14 +317,57 @@ function FilesPageInner() {
 
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900" style={{ colorScheme: 'light' }}>
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-full mx-auto">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-2xl font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <span className="text-blue-600"><FileAudio size={24}/></span> Files
-            </h1>
+      <main className="flex-1 overflow-auto bg-slate-50 p-4 sm:p-5 lg:p-6">
+        <div className="mx-auto w-full">
+          <div className="mb-8 flex flex-col justify-between gap-6 lg:flex-row lg:items-end border-b border-slate-200/60 pb-6">
+            <div className="relative">
+              {/* Decorative Frame */}
+              <div className="absolute left-0 top-1 bottom-[34px] w-px bg-gradient-to-b from-blue-400 to-transparent opacity-60"></div>
+              {/* 4-Point Star top-left */}
+              <svg className="absolute -left-[5.5px] top-0 w-3 h-3 text-blue-500 opacity-80" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C12 0 12 10.5 24 12C24 12 12 13.5 12 24C12 24 12 13.5 0 12C0 12 12 10.5 12 0Z" />
+              </svg>
+              {/* Dot and horizontal line bottom-left */}
+              <div className="absolute left-0 bottom-8 w-1.5 h-1.5 rounded-full bg-blue-500 -ml-[2px] opacity-80"></div>
+              <div className="absolute left-1.5 bottom-[34.5px] right-24 h-px bg-gradient-to-r from-blue-400 via-blue-200 to-transparent opacity-60"></div>
+              
+              {/* Right Decorative Graphics (Swirls) */}
+              <svg className="absolute -right-4 top-0 w-32 h-24 text-blue-300 pointer-events-none opacity-40 mix-blend-multiply hidden sm:block" viewBox="0 0 200 100" fill="none" stroke="currentColor">
+                <path d="M150,80 Q100,80 120,40 T180,20" strokeWidth="0.5" fill="none"/>
+                <path d="M130,90 Q80,90 90,50 T160,10" strokeWidth="0.5" fill="none"/>
+                <path d="M160,70 C130,50 180,30 190,50 C200,70 170,90 140,80" strokeWidth="0.5" fill="none"/>
+                <path d="M140,65 C140,65 140,75 145,75 C145,75 140,75 140,85 C140,85 140,75 135,75 C135,75 140,75 140,65Z" fill="#2563EB" stroke="none"/>
+                <circle cx="160" cy="25" r="1.5" fill="currentColor"/>
+                <circle cx="150" cy="15" r="1" fill="currentColor"/>
+                <circle cx="185" cy="85" r="1.5" fill="currentColor"/>
+              </svg>
+
+              <div className="pl-6 pt-8 pb-4 relative z-10">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#2563EB] leading-none">Files</h1>
+                  <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#0F172A] leading-none">Library</h1>
+                  <span 
+                    className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight leading-none ml-1 sm:ml-1.5" 
+                    style={{ 
+                      background: 'linear-gradient(to right, #0F172A, #2563EB, #60A5FA)', 
+                      WebkitBackgroundClip: 'text', 
+                      WebkitTextFillColor: 'transparent',
+                    }}
+                  >
+                    Storage
+                  </span>
+                </div>
+
+                <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-2 text-[10px] sm:text-xs font-bold tracking-[0.2em] text-[#2563EB] uppercase">
+                  <span>AUDIO ASSETS MANAGEMENT</span>
+                  <span className="text-blue-200">|</span>
+                  <span>{(total || 0).toLocaleString()} RECORDINGS</span>
+                </div>
+              </div>
+            </div>
+
             {!selectMode ? (
               <div className="flex items-center gap-3 mr-12">
                 {/* Hidden file input */}
@@ -340,52 +383,29 @@ function FilesPageInner() {
                 {/* Upload Button */}
                 <button
                   onClick={handleUploadClick}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium flex items-center gap-2 cursor-pointer transition-colors shadow-sm"
+                  className="px-5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-sm font-medium flex items-center gap-2 cursor-pointer transition-colors shadow-sm"
                 >
                   <Upload size={16} /> Upload
                 </button>
-
-                {/* Export Button */}
-                <div className="relative" ref={exportRef}>
-                  <button
-                    onClick={() => setShowExport(!showExport)}
-                    className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer transition-colors shadow-sm"
-                  >
-                    <Download size={16} /> Export
-                  </button>
-                  {showExport && (
-                    <div className="absolute right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-50 w-64 p-2">
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2">Call Analysis Report</p>
-                      <button onClick={() => handleExport('calls', 'xlsx')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors flex items-center gap-2">
-                        📊 Excel (.xlsx)
-                      </button>
-                      <button onClick={() => handleExport('calls', 'csv')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors flex items-center gap-2">
-                        📄 CSV (.csv)
-                      </button>
-                      <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2">Agent Performance</p>
-                      <button onClick={() => handleExport('agents', 'xlsx')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors flex items-center gap-2">
-                        📊 Excel (.xlsx)
-                      </button>
-                      <button onClick={() => handleExport('agents', 'csv')} className="w-full text-left px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors flex items-center gap-2">
-                        📄 CSV (.csv)
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {/* Select Button */}
                 <button
-                  onClick={() => setSelectMode(true)}
-                  className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer transition-colors shadow-sm"
-              >
-                <CheckSquare size={16} /> Select
-              </button>
+                  onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
+                  className="px-5 py-2 bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 hover:border-red-100 rounded-xl text-sm font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-sm"
+                >
+                  <Trash2 size={16} /> Delete
+                </button>
               </div>
             ) : (
               <div className="flex items-center gap-3 mr-12">
                 <span className="text-sm text-slate-600 dark:text-slate-300 font-medium">
                   เลือกแล้ว <span className="text-blue-600 font-bold">{selectedIds.size}</span> ไฟล์
                 </span>
+                <button
+                  onClick={toggleSelectAll}
+                  className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors shadow-sm flex items-center gap-2"
+                >
+                  {selectedIds.size === files.length && files.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}
+                  Select All
+                </button>
                 <button
                   onClick={() => selectedIds.size > 0 && setShowDeleteConfirm(true)}
                   disabled={selectedIds.size === 0}
@@ -566,26 +586,27 @@ function FilesPageInner() {
                       </button>
                     </th>
                   )}
-                  <th className="p-4 pl-6">File Name</th>
-                  <th className="p-4">Sentiment</th>
-                  <th className="p-4">Customer</th>
-                  <th className="p-4">Agent</th>
-                  <th className="p-4">Brand</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Date</th>
+                  <th className="p-4 pl-6 w-[28%]">File Name</th>
+                  <th className="p-4 w-[12%]">Sentiment</th>
+                  <th className="p-4 w-[15%]">Customer</th>
+                  <th className="p-4 w-[10%] text-center">Agent ID</th>
+                  <th className="p-4 w-[12%]">Brand</th>
+                  <th className="p-4 w-[10%] text-center">Call Type</th>
+                  <th className="p-4 w-[12%]">Status</th>
+                  <th className="p-4 w-[13%]">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                 {loading ? (
                   <tr>
-                    <td colSpan={selectMode ? 8 : 7} className="p-12 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={selectMode ? 9 : 8} className="p-12 text-center text-slate-400 dark:text-slate-500">
                       <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
                       <p className="text-sm">กำลังโหลดข้อมูล...</p>
                     </td>
                   </tr>
                 ) : files.length === 0 ? (
                   <tr>
-                    <td colSpan={selectMode ? 8 : 7} className="p-12 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={selectMode ? 9 : 8} className="p-12 text-center text-slate-400 dark:text-slate-500">
                       <FileAudio size={32} className="mx-auto mb-2 opacity-50" />
                       <p className="text-sm font-medium">ไม่พบไฟล์</p>
                       <p className="text-xs mt-1">ลอง upload ไฟล์ใหม่จากหน้า Upload</p>
@@ -618,7 +639,7 @@ function FilesPageInner() {
                         </span>
                       </td>
                       <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{file.customer}</td>
-                      <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{file.agent}</td>
+                      <td className="p-4 text-sm text-slate-500 dark:text-slate-400 text-center">ID {file.agent?.replace(/\D/g, '') || file.agent}</td>
                       <td className="p-4">
                         <div className="flex flex-wrap gap-1">
                           {(file.brands && file.brands.length > 0 ? file.brands : (file.brand ? [file.brand] : [])).map((b, i) => (
@@ -626,6 +647,15 @@ function FilesPageInner() {
                           ))}
                           {!file.brand && (!file.brands || file.brands.length === 0) && <span className="text-slate-400 dark:text-slate-500">-</span>}
                         </div>
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                          (file.call_direction || 'outbound').toLowerCase() === 'outbound'
+                            ? 'bg-orange-50 text-orange-500 dark:bg-orange-900/20 dark:text-orange-400'
+                            : 'bg-blue-50 text-blue-500 dark:bg-blue-900/20 dark:text-blue-400'
+                        }`}>
+                          {file.call_direction ? file.call_direction.charAt(0).toUpperCase() + file.call_direction.slice(1).toLowerCase() : 'Outbound'}
+                        </span>
                       </td>
                       <td className="p-4">
                         <span className={`inline-flex items-center space-x-1 text-xs font-bold ${getStatusColor(file.status)}`}>
@@ -698,12 +728,12 @@ function FilesPageInner() {
                 <p className="text-sm text-red-700 dark:text-red-300 font-medium">⚠️ การลบไม่สามารถกู้คืนได้ ไฟล์เสียงและผลวิเคราะห์จะถูกลบถาวร</p>
               </div>
 
-              <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">พิมพ์ <span className="font-mono font-bold text-red-600 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded">DELETE</span> เพื่อยืนยัน:</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">พิมพ์ <span className="font-mono font-bold text-red-600 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded">Delete</span> เพื่อยืนยัน:</p>
               <input
                 type="text"
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="พิมพ์ DELETE ที่นี่"
+                placeholder="พิมพ์ Delete ที่นี่"
                 className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm font-mono text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-red-200 dark:focus:ring-red-900 mb-4"
                 autoFocus
               />
@@ -717,7 +747,7 @@ function FilesPageInner() {
                 </button>
                 <button
                   onClick={handleBatchDelete}
-                  disabled={deleteConfirmText !== 'DELETE' || deleting}
+                  disabled={deleteConfirmText.trim() !== 'Delete' || deleting}
                   className="px-6 py-3 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {deleting ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}

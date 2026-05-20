@@ -1006,19 +1006,27 @@ Rules:
     if risk not in ("low", "medium", "high"):
         risk = "low"
 
-    raw_action = (result.get("recommended_action", "") or "").strip()
-    # หั่น recommended_action เป็น steps — แยกตาม "1." "2." หรือ newline
-    steps: list = []
-    if raw_action:
-        # ลอง split ด้วย numbered pattern ก่อน: "1. xxx 2. yyy" หรือบรรทัด "1. xxx\n2. yyy"
-        numbered = re.split(r'(?:^|\s|\n)(?=\d+[.)\s])', raw_action)
-        steps = [s.strip().lstrip("0123456789.)-• ").strip() for s in numbered if s.strip()]
-        # ถ้า split ไม่ได้ ลอง split ด้วย newline
-        if len(steps) <= 1:
-            steps = [s.strip().lstrip("•-* ").strip() for s in raw_action.split("\n") if s.strip()]
-        # ถ้ายัง 1 ก้อน เก็บไว้ทั้งก้อน
-        if not steps:
-            steps = [raw_action]
+    # ★ recommended_action — รองรับทั้งกรณีที่ AI ส่งเป็น string หรือ list
+    raw_action_field = result.get("recommended_action", "") or ""
+    if isinstance(raw_action_field, list):
+        # AI ส่งกลับเป็น list — แปลงเป็น string โดย join + เก็บ list ไว้เป็น steps
+        steps_from_list = [str(s).strip().lstrip("0123456789.)-•* ").strip() for s in raw_action_field if s and str(s).strip()]
+        raw_action = " ".join(f"{i+1}. {s}" for i, s in enumerate(steps_from_list))
+        steps: list = steps_from_list
+    else:
+        raw_action = str(raw_action_field).strip()
+        # หั่น recommended_action เป็น steps — แยกตาม "1." "2." หรือ newline
+        steps = []
+        if raw_action:
+            # ลอง split ด้วย numbered pattern ก่อน: "1. xxx 2. yyy" หรือบรรทัด "1. xxx\n2. yyy"
+            numbered = re.split(r'(?:^|\s|\n)(?=\d+[.)\s])', raw_action)
+            steps = [s.strip().lstrip("0123456789.)-• ").strip() for s in numbered if s.strip()]
+            # ถ้า split ไม่ได้ ลอง split ด้วย newline
+            if len(steps) <= 1:
+                steps = [s.strip().lstrip("•-* ").strip() for s in raw_action.split("\n") if s.strip()]
+            # ถ้ายัง 1 ก้อน เก็บไว้ทั้งก้อน
+            if not steps:
+                steps = [raw_action]
 
     confidence = int(result.get("confidence", 0) or 0)
     confidence = max(0, min(100, confidence))
@@ -1026,11 +1034,19 @@ Rules:
     processing_time = (datetime.now() - start_time).total_seconds()
     print(f"💡 Deep insight done: risk={risk} confidence={confidence} steps={len(steps)} ({processing_time:.1f}s)")
 
+    # helper: ถ้า AI ส่ง list มาในช่อง text → join เป็น string
+    def _ensure_str(v):
+        if v is None:
+            return ""
+        if isinstance(v, list):
+            return " ".join(str(x) for x in v if x).strip()
+        return str(v).strip()
+
     return {
-        "customer_need": result.get("customer_need", "") or "",
-        "pain_point": result.get("pain_point", "") or "",
-        "root_cause": result.get("root_cause", "") or "",
-        "expectation": result.get("expectation", "") or "",
+        "customer_need": _ensure_str(result.get("customer_need")),
+        "pain_point": _ensure_str(result.get("pain_point")),
+        "root_cause": _ensure_str(result.get("root_cause")),
+        "expectation": _ensure_str(result.get("expectation")),
         "risk_level": risk,
         "recommended_action": raw_action,
         "recommended_steps": steps,
@@ -1319,10 +1335,21 @@ def _parse_brand_names(result: dict) -> list:
     # ลอง brand_names (array) ก่อน
     names = result.get("brand_names")
     if isinstance(names, list) and names:
-        return [n.strip() for n in names if n.strip() and n.strip() != "Unknown"]
+        # flatten ถ้า AI ส่ง list-in-list มา + บังคับเป็น string
+        flat = []
+        for n in names:
+            if isinstance(n, list):
+                flat.extend(str(x) for x in n if x)
+            elif n is not None:
+                flat.append(str(n))
+        return [n.strip() for n in flat if n.strip() and n.strip() != "Unknown"]
 
     # Fallback: brand_name (string)
     name = result.get("brand_name", "")
+    if isinstance(name, list):
+        # ถ้า AI ส่ง brand_name มาเป็น list — flatten + filter
+        return [str(n).strip() for n in name if n and str(n).strip() and str(n).strip() != "Unknown"]
+    name = str(name) if name is not None else ""
     if not name or name.strip() == "Unknown":
         return []
 
