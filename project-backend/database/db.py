@@ -429,6 +429,7 @@ def list_audio_files(
             SELECT
                 f.file_id, f.original_filename, f.customer_phone, f.agent_id,
                 f.agent_name, f.call_direction, f.call_date, f.status,
+                f.created_at, f.updated_at,
                 a.sentiment, a.brand_names, a.product_category, a.intent,
                 a.created_at as analysis_date
             FROM audio_files f
@@ -481,7 +482,7 @@ def list_audio_files(
         total = conn.execute(count_query, params).fetchone()["cnt"]
 
         # Order + paginate
-        query += " ORDER BY COALESCE(f.call_date, f.created_at) DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY f.created_at DESC, COALESCE(f.call_date, f.created_at) DESC LIMIT ? OFFSET ?"
         params.extend([per_page, (page - 1) * per_page])
 
         rows = conn.execute(query, params).fetchall()
@@ -506,6 +507,8 @@ def list_audio_files(
             "status": "COMPLETE" if file_status == "analyzed" else "FAILED" if file_status == "failed" else "PROCESSING",
             "date": r.get("call_date", ""),
             "call_direction": r.get("call_direction", ""),
+            "created_at": r.get("created_at", ""),
+            "updated_at": r.get("updated_at", ""),
         })
 
     total_pages = max(1, (total + per_page - 1) // per_page)
