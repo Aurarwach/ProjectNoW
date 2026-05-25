@@ -17,7 +17,6 @@ import {
   ShieldCheck,
   User,
 } from 'lucide-react';
-import Image from 'next/image';
 import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 
@@ -435,7 +434,7 @@ export default function CustomerDetailPage() {
                   <div className="mb-6 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 text-slate-500">
-                        <Image src="/waran.jpg" alt="Warranty" width={20} height={20} className="object-contain" style={{ filter: 'grayscale(100%) contrast(500%) brightness(120%)', mixBlendMode: 'multiply' }} />
+                        <ShieldCheck size={20} strokeWidth={2.2} className="text-slate-700 dark:text-white" />
                       </div>
                       <h3 className="text-lg font-semibold text-slate-800">รายการการรับประกันสินค้า</h3>
                     </div>
@@ -459,7 +458,7 @@ export default function CustomerDetailPage() {
                         <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/50 p-6 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-400 shadow-sm">
-                              <Image src="/waran.jpg" alt="Warranty" width={24} height={24} className="object-contain" style={{ filter: 'grayscale(100%) contrast(500%) brightness(120%)', mixBlendMode: 'multiply' }} />
+                              <ShieldCheck size={24} strokeWidth={2.2} className="text-slate-700 dark:text-white" />
                             </div>
                             <div>
                               <h4 className="text-base font-medium text-slate-800">

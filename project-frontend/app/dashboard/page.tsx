@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import {
   FileAudio, CheckCircle2, RefreshCw, AlertTriangle,
   Smile, Meh, Frown, Lightbulb, Tag,
-  UserRound, AlertCircle, MoreHorizontal
+  UserRound, AlertCircle, MoreHorizontal, Calendar, Download
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -39,6 +39,8 @@ type Period = 'day' | 'month' | 'year';
 type BrandView = 'volume' | 'issues';
 
 const TOPIC_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316'];
+const DONUT_RADIUS = 45;
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 const BRAND_COLORS = [
   { bar: '#F97316' }, { bar: '#3B82F6' }, { bar: '#10B981' },
   { bar: '#EC4899' }, { bar: '#8B5CF6' }, { bar: '#F59E0B' },
@@ -52,6 +54,7 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('day');
   const [brandView, setBrandView] = useState<BrandView>('volume');
   const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
+  const datePickerRef = useRef<HTMLInputElement>(null);
 
   // ===== date selection per period =====
   const todayISO   = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD
@@ -93,25 +96,21 @@ export default function DashboardPage() {
 
   const kpi = data?.kpi;
   const sentiments = data?.sentiment_distribution || { positive: 0, neutral: 0, negative: 0 };
-  const sentMax = Math.max(sentiments.positive, sentiments.neutral, sentiments.negative, 1);
+  const sentimentTotal = sentiments.positive + sentiments.neutral + sentiments.negative;
   const topicTotal = useMemo(() => data?.topic_distribution.reduce((s, t) => s + t.count, 0) || 0, [data]);
 
   const donutSegments = useMemo(() => {
     if (!data || topicTotal === 0) return [];
-    let cumPct = 0;
-    const cx = 60, cy = 60, r = 45;
+    let cumulative = 0;
     return data.topic_distribution.slice(0, 8).map((t, i) => {
       const pct = t.count / topicTotal;
-      const startAngle = cumPct * 2 * Math.PI;
-      const endAngle = (cumPct + pct) * 2 * Math.PI;
-      cumPct += pct;
-      const x1 = cx + r * Math.sin(startAngle);
-      const y1 = cy - r * Math.cos(startAngle);
-      const x2 = cx + r * Math.sin(endAngle);
-      const y2 = cy - r * Math.cos(endAngle);
-      const largeArc = pct > 0.5 ? 1 : 0;
+      const dash = Math.max(pct * DONUT_CIRCUMFERENCE, 0.01);
+      const offset = -cumulative * DONUT_CIRCUMFERENCE;
+      cumulative += pct;
       return {
-        d: `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`,
+        dash,
+        gap: Math.max(DONUT_CIRCUMFERENCE - dash, 0),
+        offset,
         color: TOPIC_COLORS[i % TOPIC_COLORS.length],
         topic: t.topic,
         count: t.count,
@@ -191,6 +190,46 @@ export default function DashboardPage() {
     else setSelectedYear(yearStr);
   };
 
+  const datePickerId = `dashboard-date-picker-${period}`;
+  const datePickerType = period === 'month' ? 'month' : 'date';
+  const datePickerValue = period === 'day'
+    ? selectedDay
+    : period === 'month'
+      ? selectedMonth
+      : `${selectedYear}-01-01`;
+
+  const handleDatePickerChange = (value: string) => {
+    if (!value) return;
+    if (period === 'day') setSelectedDay(value);
+    else if (period === 'month') setSelectedMonth(value);
+    else setSelectedYear(value.slice(0, 4));
+  };
+
+  const openDatePicker = () => {
+    const picker = datePickerRef.current;
+    if (!picker) return;
+    const pickerWithShowPicker = picker as HTMLInputElement & { showPicker?: () => void };
+    if (typeof pickerWithShowPicker.showPicker === 'function') {
+      try {
+        pickerWithShowPicker.showPicker();
+        return;
+      } catch {
+        picker.focus();
+        return;
+      }
+    }
+    picker.focus();
+  };
+
+  const handleExport = () => {
+    const params = new URLSearchParams({
+      format: 'xlsx',
+      period,
+      date: currentDateParam,
+    });
+    window.open(`${API_BASE}/api/v1/dashboard/export-calls?${params.toString()}`, '_blank');
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
       <Sidebar />
@@ -225,14 +264,11 @@ export default function DashboardPage() {
                   <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#4F46E5] leading-none">Voice</h1>
                   <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#0F172A] leading-none">Analytics</h1>
                   <span
-                    className="text-[32px] sm:text-[38px] md:text-[44px] leading-none ml-1 sm:ml-1.5 relative top-1.5 sm:top-2"
+                    className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight leading-none ml-1 sm:ml-1.5"
                     style={{
-                      fontFamily: 'var(--font-great-vibes), cursive',
                       background: 'linear-gradient(to right, #0F172A, #4F46E5, #8B5CF6)',
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
-                      padding: '8px 12px 8px 0',
-                      lineHeight: '1.2'
                     }}
                   >
                     Dashboard
@@ -275,9 +311,26 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              <div className="flex h-10 min-w-[224px] items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+              <div className="relative flex h-10 min-w-[224px] items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
                 <button onClick={() => moveDate(-1)} className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer font-bold">-</button>
-                <span className="text-xs font-bold text-slate-700 min-w-[140px] text-center">{dateLabel}</span>
+                <label
+                  htmlFor={datePickerId}
+                  onClick={openDatePicker}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-indigo-600 dark:text-slate-300 dark:hover:text-white"
+                  title="Select date"
+                >
+                  <Calendar size={16} strokeWidth={2.4} />
+                </label>
+                <input
+                  ref={datePickerRef}
+                  id={datePickerId}
+                  type={datePickerType}
+                  value={datePickerValue}
+                  onChange={(e) => handleDatePickerChange(e.target.value)}
+                  className="pointer-events-none absolute h-px w-px opacity-0"
+                  aria-label="Select dashboard date"
+                />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-100 min-w-[140px] text-center">{dateLabel}</span>
                 <button onClick={() => moveDate(1)} className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer font-bold">+</button>
               </div>
 
@@ -287,6 +340,14 @@ export default function DashboardPage() {
                 title="Current Period"
               >
                 <RefreshCw size={18} />
+              </button>
+
+              <button
+                onClick={handleExport}
+                className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                <Download size={16} strokeWidth={2.4} />
+                Export
               </button>
             </div>
           </div>
@@ -322,9 +383,9 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-5">
 
             {/* Sentiment Distribution */}
-            <div className="bg-white rounded-xl p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] lg:col-span-3">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 dark:border-slate-700 lg:col-span-3">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="font-semibold text-lg flex items-center gap-2">
+                <h3 className="font-semibold text-lg flex items-center gap-2 text-slate-800 dark:text-slate-100">
                   <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-blue-500 to-indigo-600 shadow-sm"></div>
                   Sentiment Analysis Distribution
                 </h3>
@@ -343,36 +404,39 @@ export default function DashboardPage() {
                   if (item.label === 'Positive') {
                     barColor = 'bg-emerald-500';
                     textColor = 'text-emerald-500';
-                    bgColor = 'bg-emerald-50';
+                    bgColor = 'bg-emerald-50 dark:bg-emerald-900/20';
                   } else if (item.label === 'Negative') {
                     barColor = 'bg-red-500';
                     textColor = 'text-red-500';
-                    bgColor = 'bg-red-50';
+                    bgColor = 'bg-red-50 dark:bg-red-900/20';
                   } else {
                     barColor = 'bg-[#54657E]';
                     textColor = 'text-[#54657E]';
-                    bgColor = 'bg-slate-100/60';
+                    bgColor = 'bg-slate-100/60 dark:bg-slate-700';
                   }
 
                   const Icon = item.icon;
+                  const percentage = sentimentTotal > 0 ? (item.count / sentimentTotal) * 100 : 0;
+                  const barWidth = item.count > 0 ? Math.max(percentage, 5) : 0;
 
                   return (
                     <div key={i} className="flex items-center gap-4">
                       <div className="flex flex-col items-center justify-center w-16">
-                        <div className="w-10 h-10 rounded-full border border-slate-200 flex items-center justify-center bg-white shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] mb-1">
+                        <div className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 flex items-center justify-center bg-white dark:bg-slate-900 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] mb-1">
                           <Icon size={18} className={textColor} />
                         </div>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{item.label}</span>
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{item.label}</span>
                       </div>
 
                       <div className="flex-1 flex items-center pb-3">
                         <div className={`w-full ${bgColor} rounded-lg h-8 relative flex items-center`}>
                           <div
-                            className={`${barColor} h-full rounded-lg transition-all duration-700 flex items-center px-4 min-w-[2rem] shadow-sm`}
-                            style={{ width: `${Math.max((item.count / sentMax) * 100, 5)}%` }}
+                            className={`${barColor} h-full rounded-lg transition-all duration-700 flex items-center ${item.count > 0 ? 'min-w-[2rem] px-4' : 'px-0'} shadow-sm`}
+                            style={{ width: `${barWidth}%` }}
                           >
-                            <span className="text-sm font-bold text-white z-10">{item.count}</span>
+                            {item.count > 0 && <span className="text-sm font-bold text-white z-10">{item.count}</span>}
                           </div>
+                          {item.count === 0 && <span className={`absolute left-4 text-sm font-bold ${textColor} z-10`}>{item.count}</span>}
                         </div>
                       </div>
                     </div>
@@ -382,16 +446,16 @@ export default function DashboardPage() {
             </div>
 
             {/* Topic Distribution */}
-            <div className="bg-white rounded-xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] lg:col-span-2">
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 dark:border-slate-700 lg:col-span-2">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold text-lg flex items-center gap-2">
+                  <h3 className="font-semibold text-lg flex items-center gap-2 text-slate-800 dark:text-slate-100">
                     <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-purple-500 to-pink-600 shadow-sm"></div>
                     Topic Distribution
                   </h3>
-                  <p className="mt-1 text-xs text-slate-400">กดหัวข้อเพื่อดูไฟล์ที่อยู่ในกลุ่มนั้น</p>
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">กดหัวข้อเพื่อดูไฟล์ที่อยู่ในกลุ่มนั้น</p>
                 </div>
-                <div className="shrink-0 rounded-full border border-purple-100 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700">
+                <div className="shrink-0 rounded-full border border-purple-100 dark:border-purple-900/50 bg-purple-50 dark:bg-purple-900/20 px-3 py-1.5 text-xs font-bold text-purple-700 dark:text-purple-300">
                   {data?.topic_distribution.length || 0} Topics
                 </div>
               </div>
@@ -401,15 +465,27 @@ export default function DashboardPage() {
                   <div className="mt-4 grid gap-4 sm:grid-cols-[155px_minmax(0,1fr)]">
                     <div className="relative flex h-[170px] items-center justify-center">
                       <svg width="170" height="170" viewBox="0 0 120 120" className="origin-center animate-[spin_900ms_ease-out]">
-                        <circle cx="60" cy="60" r="45" fill="none" stroke="currentColor" className="text-slate-100" strokeWidth="18" />
+                        <circle cx="60" cy="60" r={DONUT_RADIUS} fill="none" stroke="currentColor" className="text-slate-100 dark:text-slate-700" strokeWidth="18" />
                         {donutSegments.map((seg, i) => (
-                          <path key={i} d={seg.d} fill="none" stroke={seg.color} strokeWidth="18" />
+                          <circle
+                            key={i}
+                            cx="60"
+                            cy="60"
+                            r={DONUT_RADIUS}
+                            fill="none"
+                            stroke={seg.color}
+                            strokeWidth="18"
+                            strokeDasharray={`${seg.dash} ${seg.gap}`}
+                            strokeDashoffset={seg.offset}
+                            strokeLinecap="butt"
+                            transform="rotate(-90 60 60)"
+                          />
                         ))}
                       </svg>
                       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <div className="text-center">
-                          <div className="text-base font-black leading-none text-slate-800">{topicTotal}</div>
-                          <div className="mt-1 text-[10px] font-semibold leading-none text-slate-400">Files</div>
+                          <div className="text-base font-black leading-none text-slate-800 dark:text-slate-100">{topicTotal}</div>
+                          <div className="mt-1 text-[10px] font-semibold leading-none text-slate-400 dark:text-slate-500">Files</div>
                         </div>
                       </div>
                     </div>
@@ -424,22 +500,22 @@ export default function DashboardPage() {
                             type="button"
                             suppressHydrationWarning
                             onClick={() => router.push(`/files?topic=${encodeURIComponent(seg.topic)}`)}
-                            className="group w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50"
+                            className="group w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/60"
                             title={`ดูไฟล์ที่มี topic: ${seg.topic}`}
                           >
                             <div className="flex items-center gap-2.5">
                               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: seg.color }}></span>
-                              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700 group-hover:text-slate-900">
+                              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">
                                 {seg.topic}
                               </span>
-                              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+                              <span className="shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-200">
                                 {seg.count} files
                               </span>
-                              <span className="w-10 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-400">
+                              <span className="w-10 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-400 dark:text-slate-500">
                                 {percentage}%
                               </span>
                             </div>
-                            <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
+                            <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                               <div
                                 className="h-full rounded-full"
                                 style={{ width: `${Math.max(percentage, 4)}%`, backgroundColor: seg.color }}
@@ -451,14 +527,14 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 border-t border-slate-100 pt-3">
-                    <div className="flex items-center justify-center py-5 text-center text-xs font-medium text-slate-400">
+                  <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-3">
+                    <div className="flex items-center justify-center py-5 text-center text-xs font-medium text-slate-400 dark:text-slate-500">
                       เลือกหัวข้อด้านบนเพื่อไปดูไฟล์ที่อยู่ในหัวข้อนั้น
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="flex h-[260px] items-center justify-center text-sm text-slate-400">No Data</div>
+                <div className="flex h-[260px] items-center justify-center text-sm text-slate-400 dark:text-slate-500">No Data</div>
               )}
             </div>
           </div>

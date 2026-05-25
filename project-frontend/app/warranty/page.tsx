@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const WARRANTY_ICON_STYLE = { 
+  backgroundColor: "#fff",
   backgroundImage: "url('/waran.jpg')", 
   filter: "grayscale(100%) contrast(500%) brightness(120%)",
   mixBlendMode: "multiply" as const
@@ -88,7 +89,7 @@ export default function WarrantyPage() {
                 <path d="M12 0C12 0 12 10.5 24 12C24 12 12 13.5 12 24C12 24 12 13.5 0 12C0 12 12 10.5 12 0Z" />
               </svg>
               <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[#818CF8]">
-                <span className="h-4 w-4 rounded-md bg-white bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
+                <span className="h-4 w-4 rounded-md bg-[#fff] bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
                 Warranty Storage
               </div>
               <h1 className="text-[28px] font-black leading-none tracking-tight text-[#0F172A] sm:text-[32px]">
@@ -153,7 +154,7 @@ export default function WarrantyPage() {
                   ) : warranties.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="p-12 text-center text-slate-400">
-                        <span className="mx-auto mb-3 block h-11 w-11 rounded-xl bg-white bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
+                        <span className="mx-auto mb-3 block h-11 w-11 rounded-xl bg-[#fff] bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
                         <p className="text-sm font-bold">ไม่พบข้อมูลการรับประกัน</p>
                       </td>
                     </tr>
@@ -166,7 +167,7 @@ export default function WarrantyPage() {
                       >
                         <td className="p-4 pl-6">
                           <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 shrink-0 rounded-full bg-white bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
+                            <div className="h-10 w-10 shrink-0 rounded-full bg-[#fff] bg-cover bg-center shadow-sm ring-1 ring-amber-100" style={WARRANTY_ICON_STYLE} />
                             <div className="min-w-0">
                               <p className="inline-flex items-center gap-1 truncate text-sm font-bold text-slate-800 group-hover:text-indigo-700">
                                 {w.registration_no}

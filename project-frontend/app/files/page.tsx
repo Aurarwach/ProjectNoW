@@ -24,7 +24,15 @@ interface FileRecord {
   status: string;
   date: string;
   call_direction: string;
+  created_at?: string;
+  uploaded_at?: string;
 }
+
+const getFileSortTime = (file: FileRecord) => {
+  const rawDate = file.created_at || file.uploaded_at || file.date || '';
+  const time = rawDate ? new Date(rawDate).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
+};
 
 export default function FilesPage() {
   return (
@@ -106,8 +114,9 @@ function FilesPageInner() {
     }
   }, [searchParams]);
 
-  const fetchFiles = useCallback(async () => {
-    setLoading(true);
+  const fetchFiles = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({
@@ -123,14 +132,15 @@ function FilesPageInner() {
       const res = await fetch(`${API_BASE}/api/v1/audio/list?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setFiles(data.files || []);
+      const nextFiles = [...(data.files || [])].sort((a: FileRecord, b: FileRecord) => getFileSortTime(b) - getFileSortTime(a));
+      setFiles(nextFiles);
       setTotalPages(data.total_pages || 1);
       setTotal(data.total || 0);
-    } catch (err: any) {
+    } catch {
       setError('ไม่สามารถเชื่อมต่อกับ API ได้ — กรุณาเปิด Backend Server (uvicorn)');
-      setFiles([]);
+      if (!silent) setFiles([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, search, filterBrand, filterProduct, filterDateFrom, filterDateTo]);
 
@@ -141,7 +151,7 @@ function FilesPageInner() {
   useEffect(() => {
     const hasProcessing = files.some(f => f.status === 'PROCESSING');
     if (!hasProcessing) return;
-    const interval = setInterval(() => { fetchFiles(); }, 5000);
+    const interval = setInterval(() => { fetchFiles({ silent: true }); }, 5000);
     return () => clearInterval(interval);
   }, [files, fetchFiles]);
 
@@ -305,7 +315,7 @@ function FilesPageInner() {
     }
 
     // โหลดข้อมูล Files ใหม่ + auto-clear done items หลัง 4 วินาที
-    fetchFiles();
+    fetchFiles({ silent: true });
     setTimeout(() => {
       setUploadQueue(prev => prev.filter(q => q.status !== 'done'));
     }, 4000);
@@ -437,7 +447,7 @@ function FilesPageInner() {
               />
             </div>
             <button
-              onClick={fetchFiles}
+              onClick={() => fetchFiles()}
               className="p-3 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors"
             >
               <RotateCw size={20} className={loading ? 'animate-spin' : ''} />
