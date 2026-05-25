@@ -73,8 +73,282 @@ def init_db():
             except Exception as e:
                 print(f"   ⚠️ Migration failed for deep_insight: {e}")
 
+        # === Migration: สร้างตาราง admin_activity_logs ถ้ายังไม่มี ===
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS admin_activity_logs (
+                log_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_user_id   INTEGER REFERENCES admin_users(admin_user_id),
+                actor_username  TEXT,
+                actor_role      TEXT,
+                action          TEXT NOT NULL,       -- LOGIN, LOGOUT, UPDATE_ROLE, DELETE_USER, UPLOAD_FILE, etc.
+                target_type     TEXT,                 -- 'user', 'file', 'warranty', 'customer'
+                target_id       TEXT,                 -- id ของ object ที่กระทำ
+                target_label    TEXT,                 -- ชื่อ/label สำหรับแสดง
+                detail          TEXT,                 -- รายละเอียดเพิ่มเติม (JSON หรือ text)
+                ip_address      TEXT,
+                created_at      TEXT DEFAULT (datetime('now','localtime'))
+            )
+        """)
+        # index ช่วย query ตาม time + actor
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_activity_logs(created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_actor ON admin_activity_logs(actor_user_id)")
+
+        # === Seed default users (ตาม DB จริง — somchai = ADMIN, somsri = STAFF) ===
+        import hashlib
+        def _hash(pwd: str) -> str:
+            return hashlib.sha256(f"fontai_{pwd}_salt".encode()).hexdigest()
+
+        default_users = [
+            # username, password, full_name, email, role
+            ("somchai", "somchai123", "สมชาย มีหมาย", "somchai@email.com", "ADMIN"),
+            ("somsri",  "somsri123",  "สมศรี หมีหาย", "somsri@email.com",  "STAFF"),
+        ]
+        for username, pwd, full_name, email, role in default_users:
+            existing = conn.execute(
+                "SELECT admin_user_id, role FROM admin_users WHERE username = ?", (username,)
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    """INSERT INTO admin_users (username, password_hash, full_name, email, role, is_active, created_at)
+                       VALUES (?, ?, ?, ?, ?, 1, datetime('now','localtime'))""",
+                    (username, _hash(pwd), full_name, email, role),
+                )
+                print(f"   👤 Seeded user: {username} ({role})")
+            elif existing["role"] != role:
+                # ★ ถ้ามี user อยู่แล้วแต่ role ไม่ตรง → update ให้ตรง (รองรับ role-based)
+                conn.execute(
+                    "UPDATE admin_users SET role = ? WHERE username = ?",
+                    (role, username),
+                )
+                print(f"   🔧 Updated role: {username} → {role}")
+
+        # === Seed warranty data (อิงจาก DB จริงที่ผู้ใช้แนบมาเท่านั้น) ===
+        _seed_warranty_data(conn)
+
     print(f"✅ Database initialized: {DB_PATH}")
     print(f"   Size: {DB_PATH.stat().st_size / 1024:.1f} KB")
+
+
+def _seed_warranty_data(conn):
+    """Seed: brands → categories → channels → customers + addresses → products → warranty_registrations → proof_of_purchase
+
+    ★ ข้อมูลทั้งหมดอิงจาก DB จริงที่ผู้ใช้แนบมาเท่านั้น
+    ★ Idempotent — ใช้ INSERT OR IGNORE ทุกที่ + เช็คซ้ำก่อน
+    """
+    # ----- 1. BRANDS (12 brands ตาม DB จริง — schema seed ไว้แล้ว ใช้ดึง id อย่างเดียว) -----
+    def _ensure_brand(name):
+        row = conn.execute("SELECT brand_id FROM brands WHERE brand_name = ?", (name,)).fetchone()
+        if row:
+            return row["brand_id"]
+        cur = conn.execute(
+            "INSERT INTO brands (brand_name, is_active) VALUES (?, 1)", (name,),
+        )
+        return cur.lastrowid
+
+    brand_ids = {
+        name: _ensure_brand(name)
+        for name in [
+            "Lotus", "Omazz", "Midas", "Dunlopillo", "Bedgear", "LaLaBed",
+            "Zinus", "Eastman House", "Malouf", "Loto Mobili", "Woodfield", "Restonic",
+        ]
+    }
+
+    # ----- 2. CATEGORIES (6 categories) -----
+    def _ensure_category(name):
+        row = conn.execute("SELECT category_id FROM categories WHERE category_name = ?", (name,)).fetchone()
+        if row:
+            return row["category_id"]
+        cur = conn.execute("INSERT INTO categories (category_name) VALUES (?)", (name,))
+        return cur.lastrowid
+
+    cat_ids = {
+        name: _ensure_category(name)
+        for name in ["Mattress", "Pillow", "Bedding", "Bed Frame", "Topper", "Protector"]
+    }
+
+    # ----- 3. CHANNELS (9 channels ตาม DB จริง) -----
+    def _ensure_channel(name, ctype):
+        row = conn.execute("SELECT channel_id FROM channels WHERE channel_name = ?", (name,)).fetchone()
+        if row:
+            return row["channel_id"]
+        cur = conn.execute(
+            "INSERT INTO channels (channel_name, channel_type) VALUES (?, ?)",
+            (name, ctype),
+        )
+        return cur.lastrowid
+
+    channel_ids = {
+        "Shopee":           _ensure_channel("Shopee", "ONLINE"),
+        "Lazada":           _ensure_channel("Lazada", "ONLINE"),
+        "Mattress City":    _ensure_channel("Mattress City", "OFFLINE"),
+        "SB Store":         _ensure_channel("SB Store", "OFFLINE"),
+        "Official Website": _ensure_channel("Official Website", "ONLINE"),
+        "Official Store":   _ensure_channel("Official Store", "OFFLINE"),
+        "Online":           _ensure_channel("Online", "ONLINE"),
+        "Department Store": _ensure_channel("Department Store", "OFFLINE"),
+        "Dealer":           _ensure_channel("Dealer", "DEALER"),
+    }
+
+    # ----- 4. CUSTOMERS + ADDRESSES (2 customers ตาม DB จริง) -----
+    # ใช้ INSERT OR IGNORE บน email (UNIQUE constraint) → ถ้ามีอยู่แล้วไม่ duplicate
+    customers_data = [
+        # customer_id, first_name, last_name, email, phone, gender, dob, created_at,
+        #   address_line, subdistrict, district, city, postcode
+        (2, "ธนัท",    "นามสมมุติ", "tanat@email.com",   "0819979336", "MALE", "1999-01-01", "2026-03-28 14:05:50",
+            "9/1 หมู่ 5 ถนนพหลโยธิน", "คลองหนึ่ง", "คลองหลวง", "ปทุมธานี", "12120"),
+        (3, "ธนานิท", "นามสมมุติ", "tananit@email.com", "0655044441", "MALE", "1999-01-02", "2026-03-28 14:05:50",
+            "10/1 หมู่ 5 ถนนพหลโยธิน", "คลองหนึ่ง", "คลองหลวง", "ปทุมธานี", "12120"),
+    ]
+    inserted_customers = 0
+    for c in customers_data:
+        cid, fname, lname, email, phone, gender, dob, created, addr_line, subd, dist, city, postcode = c
+
+        existing = conn.execute(
+            "SELECT customer_id FROM customers WHERE email = ? OR phone = ?", (email, phone)
+        ).fetchone()
+        if existing:
+            continue  # มีอยู่แล้ว ข้าม
+
+        cur = conn.execute(
+            """INSERT INTO customers
+               (customer_id, first_name, last_name, email, phone, gender, date_of_birth, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (cid, fname, lname, email, phone, gender, dob, created, created),
+        )
+        # address (1 ต่อ 1 ลูกค้า)
+        conn.execute(
+            """INSERT INTO addresses
+               (customer_id, address_line, subdistrict, district, city_province, country, postcode)
+               VALUES (?, ?, ?, ?, ?, 'Thailand', ?)""",
+            (cid, addr_line, subd, dist, city, postcode),
+        )
+        inserted_customers += 1
+
+    # ----- 5. PRODUCTS (10 products ตาม DB จริง) -----
+    products_data = [
+        # product_id, brand_name, category_name, model, size, sku, serial_no, label_no, created_at
+        (1,  "Dunlopillo",    "Mattress",  "Delphin",                  "5 ft.",      "8859761821247", "B7IUWSAMRNCA", "L6KONHUTUJND", "2026-01-10"),
+        (2,  "Restonic",      "Mattress",  "Restonic ComfortCare",     "6 ft.",      "8859761821308", "C3KQWT9XMPLB", "M2RTVAJK8BNE", "2026-01-15"),
+        (3,  "Zinus",         "Mattress",  "Green Tea Memory Foam",    "5 ft.",      "8859762035012", "D8NVYR2HQSCF", "N9PXLEWD4HGT", "2026-01-22"),
+        (4,  "Omazz",         "Pillow",    "Ergonomic Latex Pillow",   "40x60 cm",   "8859763048019", "E5BMLZP7RKJG", "P4SZJNBQ6YMC", "2026-02-01"),
+        (5,  "Bedgear",       "Pillow",    "Bedgear Storm 3.0",        "50x70 cm",   "8859761821520", "F1GXHUD4WNTA", "Q7UKFMCR3VPE", "2026-02-05"),
+        (6,  "Lotus",         "Bedding",   "Lotus Impression Bedset",  "6 ft.",      "8859761821636", "G6CPJSE8YLMB", "R1WHXAGD5NKF", "2026-02-10"),
+        (7,  "Eastman House", "Bedding",   "Premium Goose Down Duvet", "6 ft.",      "8859762035128", "H2DTRKN5FQWA", "S8YVBPJL2CMG", "2026-02-14"),
+        (8,  "LaLaBed",       "Bed Frame", "LaLaBed Adjustable Base",  "6 ft.",      "8859763048125", "J9FWSLA3MHXC", "T5ZQDNGE7ARH", "2026-02-20"),
+        (9,  "Midas",         "Topper",    "Midas Latex Topper",       "5 ft.",      "8859761821742", "K4HXUTB6NJYD", "U3AREMHK9BSJ", "2026-03-01"),
+        (10, "Malouf",        "Protector", "Malouf Waterproof Cover",  "5 ft.",      "8859761821858", "L7JYVWC1PKZE", "V6BTSFNL4CUK", "2026-03-10"),
+    ]
+    inserted_products = 0
+    for p in products_data:
+        pid, brand, cat, model, size, sku, serial_no, label_no, created = p
+
+        # เช็คซ้ำด้วย serial_no (UNIQUE)
+        existing = conn.execute(
+            "SELECT product_id FROM products WHERE serial_no = ?", (serial_no,)
+        ).fetchone()
+        if existing:
+            continue
+
+        conn.execute(
+            """INSERT INTO products
+               (product_id, brand_id, category_id, model, size, sku, serial_no, label_no, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (pid, brand_ids[brand], cat_ids[cat], model, size, sku, serial_no, label_no, created),
+        )
+        inserted_products += 1
+
+    # ----- 6. WARRANTY REGISTRATIONS (2 ใบ ตาม DB จริง) -----
+    warranties_data = [
+        # registration_id, registration_no, certificate_no, customer_id, product_id, channel_name,
+        #   period, purchase, delivery, order_no, expiry, status, created
+        (1, "W4Z0NQ43GXH", "B7IUWSAMRNCA", 2, 1, "Shopee", 120,
+            "2026-03-13", "2026-03-23", "Whshp26039648", "2036-03-23", "ACTIVE", "2026-03-23 21:18:00"),
+        (2, "X8K2PR57LMT", "F1GXHUD4WNTA", 3, 5, "Lazada", 120,
+            "2026-03-20", "2026-03-25", "Wlzd26041275", "2036-03-25", "ACTIVE", "2026-03-25 10:32:00"),
+    ]
+    inserted_warranties = 0
+    for w in warranties_data:
+        (rid, reg_no, cert_no, cid, pid, ch_name, period,
+         purchase, delivery, order_no, expiry, status, created) = w
+
+        existing = conn.execute(
+            "SELECT registration_id FROM warranty_registrations WHERE registration_no = ?",
+            (reg_no,),
+        ).fetchone()
+        if existing:
+            continue
+
+        conn.execute(
+            """INSERT INTO warranty_registrations
+               (registration_id, registration_no, ref_id, certificate_no,
+                customer_id, product_id, channel_id, warranty_period_months,
+                date_of_purchase, date_of_delivery, order_number, expiry_date,
+                status, created_at, updated_at)
+               VALUES (?, ?, 'N/A', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (rid, reg_no, cert_no, cid, pid, channel_ids[ch_name], period,
+             purchase, delivery, order_no, expiry, status, created, created),
+        )
+        inserted_warranties += 1
+
+    # ----- 7. PROOF OF PURCHASE (2 รูป ตาม DB จริง) -----
+    proofs_data = [
+        # registration_id, file_url, file_type, uploaded_at
+        (1, "D:\\Omazz\\รูปOmazz\\approved.webp", "image/webp", "2026-03-23 21:20:00"),
+        (2, "D:\\Omazz\\รูปOmazz\\approved.webp", "image/webp", "2026-03-25 10:35:00"),
+    ]
+    inserted_proofs = 0
+    for p in proofs_data:
+        rid, file_url, file_type, uploaded = p
+
+        existing = conn.execute(
+            "SELECT proof_id FROM proof_of_purchase WHERE registration_id = ? AND file_url = ?",
+            (rid, file_url),
+        ).fetchone()
+        if existing:
+            continue
+
+        conn.execute(
+            """INSERT INTO proof_of_purchase (registration_id, file_url, file_type, uploaded_at)
+               VALUES (?, ?, ?, ?)""",
+            (rid, file_url, file_type, uploaded),
+        )
+        inserted_proofs += 1
+
+    # ----- 8. AGENTS (3 agents ตาม DB จริง) -----
+    agents_data = [
+        # agent_id, first_name, last_name, phone, created_at
+        ("AGENT-202", "สมสมัย", "ธนบุรี", "0911111111", "2026-05-19 13:09:25"),
+        ("AGENT-104", "สมพร",  "ปากดี",  "0922222222", "2026-05-19 13:09:25"),
+        ("AGENT-102", "สมบัติ", "ใจหาญ",  "0933333333", "2026-05-19 13:09:25"),
+    ]
+    inserted_agents = 0
+    for a in agents_data:
+        agent_id, fname, lname, phone, created = a
+        existing = conn.execute(
+            "SELECT agent_id FROM agents WHERE agent_id = ?", (agent_id,)
+        ).fetchone()
+        if existing:
+            continue
+        conn.execute(
+            """INSERT INTO agents (agent_id, first_name, last_name, phone, is_active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 1, ?, ?)""",
+            (agent_id, fname, lname, phone, created, created),
+        )
+        inserted_agents += 1
+
+    # ----- Summary -----
+    if inserted_customers + inserted_products + inserted_warranties + inserted_proofs + inserted_agents > 0:
+        print(f"   📦 Seeded warranty system (from reference DB):")
+        if inserted_customers > 0:
+            print(f"      Customers: +{inserted_customers}")
+        if inserted_products > 0:
+            print(f"      Products: +{inserted_products}")
+        if inserted_warranties > 0:
+            print(f"      Warranties: +{inserted_warranties}")
+        if inserted_proofs > 0:
+            print(f"      Proofs: +{inserted_proofs}")
+        if inserted_agents > 0:
+            print(f"      Agents: +{inserted_agents}")
 
 
 # =============================================================================
@@ -698,6 +972,205 @@ def _format_analysis(r: dict) -> dict:
         "pipeline_duration": r.get("pipeline_duration", 0),
         "created_at": r.get("created_at", ""),
     }
+
+
+# =============================================================================
+# ADMIN MANAGEMENT (Users + Activity Logs)
+# =============================================================================
+
+def list_admin_users(search: str = "", role: str = "", limit: int = 100) -> list:
+    """รายชื่อ admin users + filter ตาม username/role"""
+    # defensive cast — เผื่อค่าที่ส่งมาเป็น non-string
+    search = str(search or "")
+    role = str(role or "")
+
+    query = """
+        SELECT admin_user_id, username, full_name, email, role, is_active, created_at, updated_at
+        FROM admin_users WHERE 1=1
+    """
+    params = []
+    if search:
+        query += " AND (username LIKE ? OR full_name LIKE ? OR email LIKE ?)"
+        s = f"%{search}%"
+        params.extend([s, s, s])
+    if role and role.upper() in ("ADMIN", "STAFF", "VIEWER"):
+        query += " AND role = ?"
+        params.append(role.upper())
+
+    query += " ORDER BY admin_user_id ASC LIMIT ?"
+    params.append(limit)
+
+    with get_db() as conn:
+        rows = conn.execute(query, params).fetchall()
+        return [dict_from_row(r) for r in rows]
+
+
+def update_admin_user_role(admin_user_id: int, new_role: str) -> dict:
+    """แก้ role ของ user — คืน {success, user}"""
+    if new_role.upper() not in ("ADMIN", "STAFF", "VIEWER"):
+        return {"success": False, "error": "role ต้องเป็น ADMIN, STAFF, หรือ VIEWER"}
+
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT * FROM admin_users WHERE admin_user_id = ?", (admin_user_id,)
+        ).fetchone()
+        if not existing:
+            return {"success": False, "error": "ไม่พบผู้ใช้นี้"}
+
+        old_role = existing["role"]
+        if old_role == new_role.upper():
+            return {"success": True, "user": dict_from_row(existing), "unchanged": True}
+
+        conn.execute(
+            "UPDATE admin_users SET role = ?, updated_at = datetime('now','localtime') WHERE admin_user_id = ?",
+            (new_role.upper(), admin_user_id),
+        )
+        updated = conn.execute(
+            "SELECT * FROM admin_users WHERE admin_user_id = ?", (admin_user_id,)
+        ).fetchone()
+
+        return {
+            "success": True,
+            "user": dict_from_row(updated),
+            "old_role": old_role,
+            "new_role": new_role.upper(),
+        }
+
+
+def update_admin_user_active(admin_user_id: int, is_active: bool) -> dict:
+    """เปิด/ปิดบัญชี user"""
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT * FROM admin_users WHERE admin_user_id = ?", (admin_user_id,)
+        ).fetchone()
+        if not existing:
+            return {"success": False, "error": "ไม่พบผู้ใช้นี้"}
+
+        conn.execute(
+            "UPDATE admin_users SET is_active = ?, updated_at = datetime('now','localtime') WHERE admin_user_id = ?",
+            (1 if is_active else 0, admin_user_id),
+        )
+        updated = conn.execute(
+            "SELECT * FROM admin_users WHERE admin_user_id = ?", (admin_user_id,)
+        ).fetchone()
+        return {"success": True, "user": dict_from_row(updated)}
+
+
+def log_admin_action(
+    actor_user_id: Optional[int],
+    actor_username: str,
+    actor_role: str,
+    action: str,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    target_label: Optional[str] = None,
+    detail: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> int:
+    """บันทึก activity ของ admin/staff — คืน log_id
+
+    actions ที่ใช้บ่อย:
+    - LOGIN, LOGOUT
+    - UPDATE_ROLE, ACTIVATE_USER, DEACTIVATE_USER
+    - UPLOAD_FILE, DELETE_FILE, REANALYZE_FILE
+    - CREATE_WARRANTY, UPDATE_WARRANTY, DELETE_WARRANTY
+    - CREATE_CUSTOMER, UPDATE_CUSTOMER, DELETE_CUSTOMER
+    """
+    with get_db() as conn:
+        cur = conn.execute("""
+            INSERT INTO admin_activity_logs
+            (actor_user_id, actor_username, actor_role, action, target_type, target_id, target_label, detail, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            actor_user_id, actor_username, actor_role, action,
+            target_type, target_id, target_label, detail, ip_address,
+        ))
+        return cur.lastrowid
+
+
+def list_admin_logs(
+    search: str = "",
+    action: str = "",
+    actor_username: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    """ดู activity logs + filter — คืน {logs, total}"""
+    query = "FROM admin_activity_logs WHERE 1=1"
+    params = []
+
+    if search:
+        query += " AND (action LIKE ? OR actor_username LIKE ? OR target_label LIKE ? OR detail LIKE ?)"
+        s = f"%{search}%"
+        params.extend([s, s, s, s])
+
+    if action:
+        query += " AND action = ?"
+        params.append(action.upper())
+
+    if actor_username:
+        query += " AND actor_username = ?"
+        params.append(actor_username)
+
+    if date_from:
+        query += " AND DATE(created_at) >= DATE(?)"
+        params.append(date_from)
+    if date_to:
+        query += " AND DATE(created_at) <= DATE(?)"
+        params.append(date_to)
+
+    with get_db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) as c {query}", params).fetchone()["c"]
+
+        rows = conn.execute(
+            f"SELECT log_id, actor_user_id, actor_username, actor_role, action, "
+            f"target_type, target_id, target_label, detail, ip_address, created_at "
+            f"{query} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+
+        return {
+            "logs": [dict_from_row(r) for r in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+
+def get_admin_log_stats() -> dict:
+    """สถิติ log สำหรับ dashboard mini — actions แยกตามประเภท + recent count"""
+    with get_db() as conn:
+        # นับตาม action
+        action_counts = conn.execute("""
+            SELECT action, COUNT(*) as c
+            FROM admin_activity_logs
+            WHERE DATE(created_at) >= DATE('now', '-30 days')
+            GROUP BY action ORDER BY c DESC LIMIT 10
+        """).fetchall()
+
+        # นับตาม actor
+        actor_counts = conn.execute("""
+            SELECT actor_username, COUNT(*) as c
+            FROM admin_activity_logs
+            WHERE actor_username IS NOT NULL
+              AND DATE(created_at) >= DATE('now', '-30 days')
+            GROUP BY actor_username ORDER BY c DESC LIMIT 5
+        """).fetchall()
+
+        # total ทั้งหมด + 7 วันล่าสุด
+        total = conn.execute("SELECT COUNT(*) as c FROM admin_activity_logs").fetchone()["c"]
+        last_7d = conn.execute(
+            "SELECT COUNT(*) as c FROM admin_activity_logs WHERE DATE(created_at) >= DATE('now', '-7 days')"
+        ).fetchone()["c"]
+
+        return {
+            "total_logs": total,
+            "logs_last_7_days": last_7d,
+            "top_actions": [dict_from_row(r) for r in action_counts],
+            "top_actors": [dict_from_row(r) for r in actor_counts],
+        }
 
 
 # =============================================================================

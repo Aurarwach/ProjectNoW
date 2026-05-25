@@ -18,8 +18,10 @@ from datetime import datetime
 from typing import Optional
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+from routers.audit_helper import log_from_request
 
 from services.groq_ai_service import run_groq_analysis_pipeline
 from database.db import save_analysis_result, find_customer_by_id, update_audio_file_status, get_audio_file_by_id
@@ -117,12 +119,22 @@ async def _queue_worker():
                 llama_result = result["model_results"]["llama"]
                 whisper_result = result["model_results"]["whisper"]
 
+                # ★ Transcript ที่บันทึก DB:
+                # - transcript = raw จาก Whisper/Typhoon (ก่อน mask, ก่อน fix)
+                # - corrected_transcript = หลัง mask + fix (ใช้แสดง UI ได้ถ้าต้องการ)
+                raw_transcript = whisper_result.get(
+                    "transcript_original",
+                    result["summary"]["transcript"]
+                )
+                corrected_transcript = result["summary"]["transcript"]
+
                 db_record = {
                     "task_id": task_id,
                     "file_id": file_id,
                     "customer_id": customer_id,
                     "is_retest": retest,
-                    "transcript": result["summary"]["transcript"],
+                    "transcript": raw_transcript,                       # ★ raw จาก STT
+                    "corrected_transcript": corrected_transcript,        # ★ หลัง mask+fix
                     "sentiment": result["summary"]["sentiment"],
                     "sentiment_confidence": result["summary"]["sentiment_confidence"],
                     "sentiment_score": llama_result.get("sentiment_score", 0.5),
@@ -275,6 +287,7 @@ def _resolve_audio_path(file_id: str) -> str:
 )
 async def analyze_audio(
     file_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     customer_id: Optional[str] = None,
     priority: str = "normal",
@@ -322,6 +335,15 @@ async def analyze_audio(
     except Exception:
         pass
 
+    # ★ Log ANALYZE_FILE
+    log_from_request(
+        request,
+        action="ANALYZE_FILE",
+        target_type="file",
+        target_id=file_id,
+        detail=f"task_id={task_id}, priority={priority}",
+    )
+
     return JSONResponse(
         status_code=202,
         content={
@@ -345,6 +367,7 @@ async def analyze_audio(
 @router.post("/retest/{file_id}", status_code=202, summary="🔄 วิเคราะห์ซ้ำ (Retest)")
 async def retest_audio(
     file_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     customer_id: Optional[str] = None,
     reason: Optional[str] = None,
@@ -382,6 +405,15 @@ async def retest_audio(
         customer_id=customer_id,
         retest=True,
         created_by=created_by,
+    )
+
+    # ★ Log REANALYZE_FILE
+    log_from_request(
+        request,
+        action="REANALYZE_FILE",
+        target_type="file",
+        target_id=file_id,
+        detail=f"task_id={task_id}, reason={reason or 'ไม่ระบุ'}",
     )
 
     return JSONResponse(

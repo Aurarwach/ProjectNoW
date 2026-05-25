@@ -28,7 +28,7 @@ interface FileRecord {
 
 export default function FilesPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600" size={32} /></div>}>
+    <Suspense fallback={<div className="page-bg-dark flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600" size={32} /></div>}>
       <FilesPageInner />
     </Suspense>
   );
@@ -317,9 +317,9 @@ function FilesPageInner() {
 
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900" style={{ colorScheme: 'light' }}>
+    <div className="page-bg-dark flex h-screen overflow-hidden bg-slate-50 text-slate-900" style={{ colorScheme: 'light' }}>
       <Sidebar />
-      <main className="flex-1 overflow-auto bg-slate-50 p-4 sm:p-5 lg:p-6">
+      <main className="page-bg-dark flex-1 overflow-auto bg-slate-50 p-4 sm:p-5 lg:p-6">
         <div className="mx-auto w-full">
           <div className="mb-8 flex flex-col justify-between gap-6 lg:flex-row lg:items-end border-b border-slate-200/60 pb-6">
             <div className="relative">
@@ -710,7 +710,7 @@ function FilesPageInner() {
 
         {/* ==================== Delete Confirmation Modal ==================== */}
         {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}>
+          <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}>
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 bg-red-50 dark:bg-red-900/30 rounded-xl flex items-center justify-center">

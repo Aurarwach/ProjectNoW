@@ -740,7 +740,6 @@ Intent ที่เป็นไปได้:
 
 ส่งผลลัพธ์เป็น JSON format ดังนี้ (ตอบเป็น JSON เท่านั้น ไม่ต้องมี markdown):
 {{
-  "corrected_transcript": "transcript ที่แก้คำผิดแล้วทั้งหมด (แก้ชื่อแบรนด์เป็นอังกฤษ ลบ noise)",
   "summary_points": ["จุดสรุปที่ 1", "จุดสรุปที่ 2", "จุดสรุปที่ 3", "จุดสรุปที่ 4"],
   "summary_text": "สรุปรวมสั้นๆ 1-2 ประโยค",
   "sentiment": "positive" หรือ "neutral" หรือ "negative",
@@ -770,7 +769,7 @@ Intent ที่เป็นไปได้:
             ],
             model=LLAMA_MODEL,
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=8192,                          # ★ เพิ่มจาก 4096 เผื่อ transcript ยาว
             response_format={"type": "json_object"},
         )
         return chat_completion.choices[0].message.content
@@ -1060,6 +1059,323 @@ Rules:
 # STEP 2.5: Llama — แก้ไข Transcript ให้ถูกต้อง
 # =============================================================================
 
+# =============================================================================
+# STEP 2.6: Llama — PII Masking (Privacy Layer)
+# =============================================================================
+
+async def mask_pii_with_llama(
+    file_id: str,
+    transcript: str,
+) -> dict:
+    """
+    Mask ข้อมูลส่วนตัว (PII) ก่อนส่ง transcript ไปวิเคราะห์ลึก
+    ตอนนี้ mask: ชื่อบุคคล + เบอร์โทรศัพท์
+
+    Returns:
+        {
+            "masked_transcript": str,        # text ที่ mask แล้ว (เต็มความยาว)
+            "mask_count": {"name": int, "phone": int},
+            "status": "completed" | "skipped" | "failed",
+        }
+
+    NOTE: ฟังก์ชันนี้ไม่แก้ raw transcript ใน DB — แค่คืน masked version
+    NOTE: รองรับ transcript ยาวด้วย chunked processing (แบ่งชิ้นละ ~2000 chars)
+    """
+    start_time = datetime.now()
+
+    if not GROQ_AVAILABLE or not _ALL_API_KEYS:
+        return {
+            "masked_transcript": transcript,
+            "mask_count": {"name": 0, "phone": 0},
+            "status": "skipped",
+        }
+
+    if not transcript or not transcript.strip():
+        return {
+            "masked_transcript": transcript,
+            "mask_count": {"name": 0, "phone": 0},
+            "status": "skipped",
+        }
+
+    # ★ Split transcript เป็น chunks ถ้ายาว
+    # ภาษาไทย ~3 chars/token → 2000 chars ≈ 700 tokens input + 700 tokens output = 1400 tokens
+    # max_tokens=4096 มีที่เหลือเฟือ ป้องกัน output ถูกตัด
+    CHUNK_SIZE = 2000
+    chunks = _split_text_for_masking(transcript, CHUNK_SIZE)
+
+    masked_parts = []
+    total_name_count = 0
+    total_phone_count = 0
+    has_failure = False
+
+    for i, chunk in enumerate(chunks):
+        chunk_result = await _mask_single_chunk(chunk, file_id, chunk_idx=i+1, total_chunks=len(chunks))
+        masked_parts.append(chunk_result["masked"])
+        total_name_count += chunk_result["names"]
+        total_phone_count += chunk_result["phones"]
+        if chunk_result["failed"]:
+            has_failure = True
+        # delay เล็กน้อยระหว่าง chunks
+        if i < len(chunks) - 1:
+            await asyncio.sleep(0.5)
+
+    # ★ ต่อ chunks กลับเข้าด้วยกัน
+    masked_transcript = "".join(masked_parts)
+
+    # Safety check: ถ้า output สั้นกว่า input มาก > 30% → fallback (น่าจะมี error)
+    if len(masked_transcript) < len(transcript) * 0.7:
+        print(f"⚠️ PII mask output suspicious: input={len(transcript)} chars, output={len(masked_transcript)} chars")
+        print(f"   Fallback to original transcript")
+        return {
+            "masked_transcript": transcript,
+            "mask_count": {"name": 0, "phone": 0},
+            "status": "failed_length_mismatch",
+        }
+
+    processing_time = (datetime.now() - start_time).total_seconds()
+    status = "partial" if has_failure else "completed"
+    print(f"🔒 PII masked ({len(chunks)} chunks): names={total_name_count}, phones={total_phone_count} ({processing_time:.1f}s) [{status}]")
+
+    return {
+        "masked_transcript": masked_transcript,
+        "mask_count": {"name": total_name_count, "phone": total_phone_count},
+        "status": status,
+        "processing_time_seconds": round(processing_time, 2),
+        "chunks_processed": len(chunks),
+    }
+
+
+def _split_text_for_masking(text: str, chunk_size: int = 2000) -> list[str]:
+    """
+    แบ่ง text เป็น chunks โดยพยายามตัดที่ขอบประโยค (จุด/ตัวอักษรวรรค)
+    ไม่ตัดกลางคำ
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end >= len(text):
+            chunks.append(text[start:])
+            break
+
+        # หาจุดตัดที่ดี: ภายใน 200 chars ก่อน end ขอบประโยค/space
+        search_start = max(start, end - 200)
+        cut_at = end
+        for marker in [' ', '\n', 'ครับ', 'ค่ะ', '. ', '? ', '! ']:
+            idx = text.rfind(marker, search_start, end)
+            if idx != -1 and idx > search_start:
+                cut_at = idx + len(marker)
+                break
+
+        chunks.append(text[start:cut_at])
+        start = cut_at
+
+    return chunks
+
+
+async def _mask_single_chunk(chunk: str, file_id: str, chunk_idx: int, total_chunks: int) -> dict:
+    """Mask 1 chunk — คืน plain text (ไม่ใช่ JSON เพื่อประหยัด tokens)"""
+    loop = asyncio.get_event_loop()
+
+    system_prompt = """You are a Thai PII masking tool.
+
+Replace these in the input text:
+- Personal names (ชื่อคน เช่น สมศรี, สมชาย, John) → [NAME]
+- Phone numbers (เบอร์โทร 8-12 หลัก รวม dash) → [PHONE]
+
+KEEP everything else exactly the same:
+- Same length, same words, same order
+- Keep brand names (Lotus, Bedgear, Dunlopillo, Midas, Topper)
+- Keep titles (คุณ, นาย, นาง, พี่, น้อง) — only mask the name after them
+- Keep agent codes (AGENT-104), product codes, dates, prices
+- Keep ALL other text exactly as is
+
+Return ONLY the masked text — no JSON, no markdown, no explanation."""
+
+    user_prompt = f"Mask PII in this text:\n\n{chunk}"
+
+    def _mask():
+        c = _get_next_client()
+        chat_completion = c.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=LLAMA_MODEL,
+            temperature=0.0,
+            max_tokens=4096,
+            # ★ ไม่ใช้ response_format JSON — ใช้ plain text ลด overhead
+        )
+        return chat_completion.choices[0].message.content
+
+    try:
+        raw_response = await loop.run_in_executor(None, lambda: _retry_on_rate_limit(_mask))
+    except Exception as e:
+        print(f"  ⚠️ Chunk {chunk_idx}/{total_chunks} mask failed: {e} — using original")
+        return {
+            "masked": chunk,           # ★ fallback ใช้ original
+            "names": 0,
+            "phones": 0,
+            "failed": True,
+        }
+
+    masked = (raw_response or "").strip()
+
+    # Safety: ถ้า output ว่างหรือสั้นผิดปกติ → ใช้ original
+    if not masked or len(masked) < len(chunk) * 0.5:
+        print(f"  ⚠️ Chunk {chunk_idx}/{total_chunks} output suspicious (in={len(chunk)} out={len(masked)}) — using original")
+        return {
+            "masked": chunk,
+            "names": 0,
+            "phones": 0,
+            "failed": True,
+        }
+
+    # นับ tag ที่ใส่
+    names = masked.count("[NAME]")
+    phones = masked.count("[PHONE]")
+
+    return {
+        "masked": masked,
+        "names": names,
+        "phones": phones,
+        "failed": False,
+    }
+
+
+# =============================================================================
+# STEP 2.5: Llama — แก้ไข Transcript (Chunked Version)
+# =============================================================================
+
+async def fix_transcript_chunked(
+    file_id: str,
+    transcript: str,
+) -> dict:
+    """
+    แก้ไข transcript จาก Whisper/Typhoon โดยแบ่ง chunks ทำทีละชิ้น
+    - แก้คำผิด ชื่อแบรนด์ ลบ noise
+    - Output เป็น plain text (ไม่ใช่ JSON) — ลด token overhead
+    - รองรับ transcript ยาวเป็น 60+ นาที
+
+    Returns:
+        {
+            "corrected_transcript": str,
+            "status": "completed" | "partial" | "skipped" | "failed",
+            "chunks_processed": int,
+        }
+    """
+    start_time = datetime.now()
+
+    if not GROQ_AVAILABLE or not _ALL_API_KEYS:
+        return {
+            "corrected_transcript": transcript,
+            "status": "skipped",
+            "chunks_processed": 0,
+        }
+
+    if not transcript or not transcript.strip():
+        return {
+            "corrected_transcript": transcript,
+            "status": "skipped",
+            "chunks_processed": 0,
+        }
+
+    # แบ่ง chunks ขนาด 2000 chars (ตัดที่ขอบประโยค)
+    CHUNK_SIZE = 2000
+    chunks = _split_text_for_masking(transcript, CHUNK_SIZE)
+
+    fixed_parts = []
+    has_failure = False
+
+    for i, chunk in enumerate(chunks):
+        result = await _fix_single_chunk(chunk, file_id, chunk_idx=i+1, total_chunks=len(chunks))
+        fixed_parts.append(result["fixed"])
+        if result["failed"]:
+            has_failure = True
+        if i < len(chunks) - 1:
+            await asyncio.sleep(0.5)
+
+    fixed_transcript = "".join(fixed_parts)
+
+    # Safety: ถ้าผลลัพธ์สั้นกว่า input มาก → fallback
+    if len(fixed_transcript) < len(transcript) * 0.7:
+        print(f"⚠️ Fix transcript output suspicious: in={len(transcript)} out={len(fixed_transcript)} chars — fallback")
+        return {
+            "corrected_transcript": transcript,
+            "status": "failed_length_mismatch",
+            "chunks_processed": len(chunks),
+        }
+
+    processing_time = (datetime.now() - start_time).total_seconds()
+    status = "partial" if has_failure else "completed"
+    print(f"✏️ Transcript fixed ({len(chunks)} chunks, {processing_time:.1f}s) [{status}]")
+
+    return {
+        "corrected_transcript": fixed_transcript,
+        "status": status,
+        "chunks_processed": len(chunks),
+        "processing_time_seconds": round(processing_time, 2),
+    }
+
+
+async def _fix_single_chunk(chunk: str, file_id: str, chunk_idx: int, total_chunks: int) -> dict:
+    """แก้ไข 1 chunk — คืน plain text"""
+    loop = asyncio.get_event_loop()
+
+    system_prompt = """คุณเป็น AI แก้ไขข้อความภาษาไทยจาก ASR (Speech-to-Text)
+
+หน้าที่:
+- แก้คำผิด/สะกดผิด (เช่น "ครับ จากท" → "ครับ จากทาง")
+- แก้ชื่อแบรนด์ให้ถูกต้อง: Lotus, Bedgear, Dunlopillo, Midas, Topper, Omazz
+- ลบ noise/คำต่างประเทศที่หลุดมา
+- เติมเครื่องหมายวรรคตอนเล็กน้อย
+- เพิ่มเว้นวรรคให้อ่านง่ายขึ้น
+
+ข้อห้าม:
+- ห้ามย่อ ห้ามสรุป ห้ามแปล ห้ามตัดข้อความออก
+- ห้ามเพิ่มข้อความใหม่ที่ไม่มีใน input
+- รักษาความยาวให้ใกล้เคียงเดิม
+
+ตอบเป็น plain text เท่านั้น — ไม่มี JSON, ไม่มี markdown, ไม่มีคำอธิบาย"""
+
+    user_prompt = f"แก้ไข transcript นี้:\n\n{chunk}"
+
+    def _fix():
+        c = _get_next_client()
+        chat_completion = c.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=LLAMA_MODEL,
+            temperature=0.1,
+            max_tokens=4096,
+        )
+        return chat_completion.choices[0].message.content
+
+    try:
+        raw_response = await loop.run_in_executor(None, lambda: _retry_on_rate_limit(_fix))
+    except Exception as e:
+        print(f"  ⚠️ Fix chunk {chunk_idx}/{total_chunks} failed: {e} — using original")
+        return {"fixed": chunk, "failed": True}
+
+    fixed = (raw_response or "").strip()
+
+    # Safety
+    if not fixed or len(fixed) < len(chunk) * 0.5:
+        print(f"  ⚠️ Fix chunk {chunk_idx}/{total_chunks} output suspicious (in={len(chunk)} out={len(fixed)}) — using original")
+        return {"fixed": chunk, "failed": True}
+
+    return {"fixed": fixed, "failed": False}
+
+
+# =============================================================================
+# STEP 2.5 (Legacy): Llama — แก้ไข Transcript ให้ถูกต้อง
+# =============================================================================
+
 async def groq_llama_fix_transcript(
     file_id: str,
     transcript: str,
@@ -1153,7 +1469,7 @@ async def groq_llama_fix_transcript(
             ],
             model=LLAMA_MODEL,
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=8192,                          # ★ เพิ่มจาก 4096
             response_format={"type": "json_object"},
         )
         return chat_completion.choices[0].message.content
@@ -1252,38 +1568,66 @@ async def run_groq_analysis_pipeline(
     if on_step_complete:
         await on_step_complete("whisper", whisper_result)
 
-    # --- Step 2: Llama Fix + Analyze (รวมใน call เดียว) ---
+    # --- Step 1.5: Fix Transcript (chunked) ---
+    # ★ แก้คำผิด/ลบ noise แบบ chunked → รองรับเสียงยาว
+    raw_transcript_from_whisper = whisper_result["transcript"]
+
     await asyncio.sleep(DELAY_BETWEEN_STEPS)
-    print(f"  Step 2/2: Llama (แก้ Transcript + วิเคราะห์)...")
+    print(f"  Step 1.5/4: Fix Transcript (chunked)...")
+    fix_result = await fix_transcript_chunked(
+        file_id=file_id,
+        transcript=raw_transcript_from_whisper,
+    )
+    fixed_transcript = fix_result["corrected_transcript"]
+    print(f"  ✅ Step 1.5 done: {fix_result['status']}")
+
+    # --- Step 2: PII Masking (chunked) ---
+    await asyncio.sleep(DELAY_BETWEEN_STEPS)
+    print(f"  Step 2/4: PII Masking (chunked)...")
+    mask_result = await mask_pii_with_llama(
+        file_id=file_id,
+        transcript=fixed_transcript,
+    )
+    masked_transcript = mask_result["masked_transcript"]
+    print(f"  ✅ Step 2 done: {mask_result['mask_count']}")
+
+    # --- Step 3: Llama Analyze (ใช้ masked + ไม่ต้องคืน transcript ใน JSON) ---
+    await asyncio.sleep(DELAY_BETWEEN_STEPS)
+    print(f"  Step 3/4: Llama Analyze...")
 
     llama_result = await groq_llama_analyze(
         file_id=file_id,
-        transcript=whisper_result["transcript"],
+        transcript=masked_transcript,
         segments=whisper_result.get("segments", []),
     )
 
-    # อัปเดต whisper_result ด้วย corrected transcript จาก Llama
-    corrected_transcript = llama_result.get("corrected_transcript", whisper_result["transcript"])
-    whisper_result["transcript_original"] = whisper_result["transcript"]
+    # ★ corrected_transcript ใช้ masked (ผ่าน fix แล้ว + mask แล้ว) — frontend แสดงตัวนี้
+    # ไม่ใช้ corrected_transcript จาก analyze แล้ว (ไม่ต้องคืนใน JSON)
+    corrected_transcript = masked_transcript
+
+    whisper_result["transcript_original"] = raw_transcript_from_whisper
+    whisper_result["transcript_fixed"] = fixed_transcript
+    whisper_result["transcript_masked"] = masked_transcript
     whisper_result["transcript"] = corrected_transcript
     whisper_result["transcript_corrected"] = True
+    whisper_result["pii_mask_count"] = mask_result["mask_count"]
 
-    print(f"  ✅ Step 2 done: sentiment={llama_result['sentiment']}, "
+    print(f"  ✅ Step 3 done: sentiment={llama_result['sentiment']}, "
           f"QA={llama_result['qa_scoring']['final_score']}, "
           f"brand={llama_result['brand_name']}")
 
     if on_step_complete:
         await on_step_complete("llama", llama_result)
 
-    # ===== Step 3: Deep Customer Insight (second-pass AI) =====
+    # ===== Step 4: Deep Customer Insight =====
     await asyncio.sleep(DELAY_BETWEEN_STEPS)
-    print(f"  Step 3/3: Deep Customer Insight...")
+    print(f"  Step 4/4: Deep Customer Insight...")
     deep_insight = await groq_llama_deep_insight(
         file_id=file_id,
         transcript=corrected_transcript,
         base_analysis=llama_result,
     )
-    print(f"  ✅ Step 3 done: risk={deep_insight.get('risk_level')}, confidence={deep_insight.get('confidence')}")
+    print(f"  ✅ Step 4 done: risk={deep_insight.get('risk_level')}, confidence={deep_insight.get('confidence')}")
 
     pipeline_duration = (datetime.now() - pipeline_start).total_seconds()
     print(f"🏁 Pipeline DONE: {pipeline_duration:.1f}s total")
@@ -1323,41 +1667,148 @@ async def run_groq_analysis_pipeline(
 # Helpers
 # =============================================================================
 
+# =============================================================================
+# Brand Whitelist + Normalization
+# =============================================================================
+
+# ★ Brand ที่อนุญาต — รายชื่อ canonical (ต้องตรงกับใน Llama prompt)
+ALLOWED_BRANDS = {
+    "Lotus", "Bedgear", "Dunlopillo", "Midas", "Topper", "Omazz",
+    "LaLaBed", "Zinus", "Eastman House", "Malouf", "Loto Mobili",
+    "Woodfield", "Restonic",
+    "Slumberland", "Synda", "Theraflex", "Serta", "Sealy", "Simmons",
+}
+
+# ★ คำที่ Whisper/Llama มักถอดผิด → canonical brand
+# เพิ่มตัวสะกดผิดที่เคยเจอที่นี่ — สามารถเพิ่มได้เรื่อยๆ
+BRAND_ALIASES = {
+    # Dunlopillo aliases (Whisper ถอดผิดเป็น...)
+    "daloxxfiro": "Dunlopillo",
+    "danlopilo":  "Dunlopillo",
+    "dunlopilo":  "Dunlopillo",
+    "dunlop":     "Dunlopillo",
+    "dunlopi":    "Dunlopillo",
+    "dunlopillow":"Dunlopillo",
+    "ดันลอป":     "Dunlopillo",
+    "ดันลอปิลโล": "Dunlopillo",
+    "ดันลอปปิลโล":"Dunlopillo",
+    # Lotus aliases
+    "โลตัส":      "Lotus",
+    # Bedgear aliases
+    "เบ็ดเกียร์": "Bedgear",
+    "bedgea":     "Bedgear",
+    "betgear":    "Bedgear",
+    # Midas
+    "ไมดาส":      "Midas",
+    # Topper
+    "ท็อปเปอร์":  "Topper",
+    # Omazz
+    "โอมาซ":      "Omazz",
+    "omaz":       "Omazz",
+}
+
+
+def _normalize_brand(name: str) -> str | None:
+    """
+    Normalize brand name:
+    - ถ้า exact match กับ canonical → คืนเลย
+    - ถ้าตรงกับ alias (case-insensitive) → คืน canonical
+    - ถ้าใกล้เคียง canonical (Levenshtein-ish ratio > 0.7) → คืน canonical
+    - ถ้าไม่ตรงเลย → คืน None (ถูกกรองออก)
+    """
+    if not name or not isinstance(name, str):
+        return None
+
+    cleaned = name.strip()
+    if not cleaned or cleaned.lower() == "unknown":
+        return None
+
+    cleaned_lower = cleaned.lower()
+
+    # 1. Exact match ใน allowed list (case-insensitive)
+    for brand in ALLOWED_BRANDS:
+        if cleaned_lower == brand.lower():
+            return brand
+
+    # 2. ตรงกับ alias
+    if cleaned_lower in BRAND_ALIASES:
+        return BRAND_ALIASES[cleaned_lower]
+
+    # 3. Fuzzy match — ดูความใกล้เคียง prefix
+    # เช่น "DUNLO" → "Dunlopillo" (prefix 5 ตัว match)
+    for brand in ALLOWED_BRANDS:
+        brand_lower = brand.lower()
+        # prefix match อย่างน้อย 4 ตัวขึ้นไป + ความยาวใกล้กัน
+        if len(cleaned_lower) >= 4 and len(brand_lower) >= 4:
+            # เริ่มเหมือนกัน 4 ตัวขึ้นไป
+            if cleaned_lower[:4] == brand_lower[:4]:
+                return brand
+            # หรือ brand อยู่ใน cleaned (เช่น "DUNLOPILOW" contains "dunlop")
+            if brand_lower in cleaned_lower or cleaned_lower in brand_lower:
+                return brand
+
+    # 4. Fuzzy character ratio (similarity > 70%)
+    for brand in ALLOWED_BRANDS:
+        sim = _similarity_ratio(cleaned_lower, brand.lower())
+        if sim >= 0.7:
+            return brand
+
+    # ไม่ตรงเลย → ถือว่าไม่ใช่ brand ที่อนุญาต
+    return None
+
+
+def _similarity_ratio(a: str, b: str) -> float:
+    """คำนวณความใกล้เคียงของ 2 strings ด้วย difflib (0.0 - 1.0)"""
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, a, b).ratio()
+
+
 def _parse_brand_names(result: dict) -> list:
     """
     Parse brand จาก Llama response — รองรับทั้ง array และ string
-    
+    + Normalize ตาม whitelist (กรองคำที่ Whisper ถอดผิด เช่น DALOXXFIRO)
+
     Llama อาจตอบเป็น:
     - brand_names: ["Lotus", "Omazz"]     → array (ต้องการ)
     - brand_name: "Lotus"                  → string เดี่ยว (backward compat)
     - brand_name: "Lotus, Omazz"           → string หลายแบรนด์คั่นด้วย comma
     """
+    raw_brands = []
+
     # ลอง brand_names (array) ก่อน
     names = result.get("brand_names")
     if isinstance(names, list) and names:
         # flatten ถ้า AI ส่ง list-in-list มา + บังคับเป็น string
-        flat = []
         for n in names:
             if isinstance(n, list):
-                flat.extend(str(x) for x in n if x)
+                raw_brands.extend(str(x) for x in n if x)
             elif n is not None:
-                flat.append(str(n))
-        return [n.strip() for n in flat if n.strip() and n.strip() != "Unknown"]
+                raw_brands.append(str(n))
+    else:
+        # Fallback: brand_name (string)
+        name = result.get("brand_name", "")
+        if isinstance(name, list):
+            raw_brands = [str(n) for n in name if n]
+        elif name:
+            name = str(name)
+            if "," in name:
+                raw_brands = [n.strip() for n in name.split(",")]
+            else:
+                raw_brands = [name]
 
-    # Fallback: brand_name (string)
-    name = result.get("brand_name", "")
-    if isinstance(name, list):
-        # ถ้า AI ส่ง brand_name มาเป็น list — flatten + filter
-        return [str(n).strip() for n in name if n and str(n).strip() and str(n).strip() != "Unknown"]
-    name = str(name) if name is not None else ""
-    if not name or name.strip() == "Unknown":
-        return []
+    # ★ Normalize + dedupe
+    normalized = []
+    seen = set()
+    for raw in raw_brands:
+        canonical = _normalize_brand(raw)
+        if canonical and canonical not in seen:
+            normalized.append(canonical)
+            seen.add(canonical)
+        elif canonical is None and raw.strip() and raw.strip().lower() != "unknown":
+            # Log brand ที่ถูกกรองออก (เผื่อเอาไป tune aliases ทีหลัง)
+            print(f"  ⚠️ Filtered out unknown brand: {raw.strip()!r}")
 
-    # อาจเป็น comma-separated
-    if "," in name:
-        return [n.strip() for n in name.split(",") if n.strip() and n.strip() != "Unknown"]
-
-    return [name.strip()]
+    return normalized
 
 
 def _score_to_grade(s):
@@ -1437,28 +1888,51 @@ async def run_typhoon_pipeline(
     if on_step_complete:
         await on_step_complete("diarization", speaker_segments)
 
-    # --- Step 3: Groq Llama (Fix + Analyze) ---
+    # --- Step 2.5: Fix Transcript (chunked) ---
+    raw_transcript_merged = merged_transcript
+
     await asyncio.sleep(DELAY_BETWEEN_STEPS)
-    print(f"  Step 3/3: Llama (แก้ Transcript + วิเคราะห์)...")
+    print(f"  Step 2.5/5: Fix Transcript (chunked)...")
+    fix_result = await fix_transcript_chunked(
+        file_id=file_id,
+        transcript=raw_transcript_merged,
+    )
+    fixed_transcript = fix_result["corrected_transcript"]
+    print(f"  ✅ Step 2.5 done: {fix_result['status']}")
+
+    # --- Step 3: PII Masking (chunked) ---
+    await asyncio.sleep(DELAY_BETWEEN_STEPS)
+    print(f"  Step 3/5: PII Masking (chunked)...")
+    mask_result = await mask_pii_with_llama(
+        file_id=file_id,
+        transcript=fixed_transcript,
+    )
+    masked_transcript = mask_result["masked_transcript"]
+    print(f"  ✅ Step 3 done: {mask_result['mask_count']}")
+
+    # --- Step 4: Groq Llama Analyze (ไม่ต้องคืน corrected_transcript) ---
+    await asyncio.sleep(DELAY_BETWEEN_STEPS)
+    print(f"  Step 4/5: Llama Analyze...")
 
     llama_result = await groq_llama_analyze(
         file_id=file_id,
-        transcript=merged_transcript,
+        transcript=masked_transcript,
         segments=transcript_segments,
     )
 
-    corrected_transcript = llama_result.get("corrected_transcript", merged_transcript)
+    # ★ ใช้ masked (ผ่าน fix+mask แล้ว) เป็น corrected ที่ frontend แสดง
+    corrected_transcript = masked_transcript
 
-    print(f"  ✅ Step 3 done: sentiment={llama_result['sentiment']}, "
+    print(f"  ✅ Step 4 done: sentiment={llama_result['sentiment']}, "
           f"QA={llama_result['qa_scoring']['final_score']}, "
           f"brand={llama_result['brand_name']}")
 
     if on_step_complete:
         await on_step_complete("llama", llama_result)
 
-    # ===== Step 4: Deep Customer Insight (second-pass AI) =====
+    # ===== Step 5: Deep Customer Insight =====
     await asyncio.sleep(DELAY_BETWEEN_STEPS)
-    print(f"  Step 4/4: Deep Customer Insight...")
+    print(f"  Step 5/5: Deep Customer Insight...")
     deep_insight = await groq_llama_deep_insight(
         file_id=file_id,
         transcript=corrected_transcript,
@@ -1473,7 +1947,9 @@ async def run_typhoon_pipeline(
     stt_result = {
         "file_id": file_id,
         "transcript": corrected_transcript,
-        "transcript_original": transcript_text,
+        "transcript_original": raw_transcript_merged,    # ★ raw จาก Typhoon+diarization
+        "transcript_fixed": fixed_transcript,             # ★ หลัง fix (ยังไม่ mask)
+        "transcript_masked": masked_transcript,           # ★ หลัง fix + mask
         "transcript_corrected": True,
         "language_detected": "th",
         "segments": transcript_segments,
@@ -1482,6 +1958,7 @@ async def run_typhoon_pipeline(
         "word_count": len(transcript_text.split()),
         "stt_engine": "typhoon",
         "diarization_engine": "pyannote" if speaker_segments else "none",
+        "pii_mask_count": mask_result["mask_count"],
     }
 
     return {

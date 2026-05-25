@@ -54,6 +54,7 @@ interface Warranty {
   channel_name: string;
   warranty_period_months: number;
   date_of_purchase: string;
+  date_of_delivery?: string | null;
   expiry_date: string;
   status: string;
 }
@@ -89,6 +90,7 @@ interface WarrantyListRecord {
   status: string;
   warranty_period_months: number;
   date_of_purchase: string;
+  date_of_delivery?: string | null;
   expiry_date: string;
   model: string;
   size: string;
@@ -176,6 +178,7 @@ export default function CustomerDetailPage() {
           channel_name: item.channel_name,
           warranty_period_months: item.warranty_period_months,
           date_of_purchase: item.date_of_purchase,
+          date_of_delivery: item.date_of_delivery,
           expiry_date: item.expiry_date,
           status: item.status,
         }));
@@ -287,10 +290,10 @@ export default function CustomerDetailPage() {
   ].filter(Boolean).join(' ') || '-';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900" style={{ colorScheme: 'light' }}>
+    <div className="page-bg-dark flex h-screen overflow-hidden bg-slate-50 text-slate-900" style={{ colorScheme: 'light' }}>
       <Sidebar />
-      <main className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto p-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <main className="page-bg-dark flex flex-1 flex-col overflow-hidden">
+        <div className="page-bg-dark flex-1 overflow-auto p-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <div className="mx-auto max-w-[1280px] space-y-6">
             <button
               onClick={() => router.back()}
@@ -496,10 +499,10 @@ export default function CustomerDetailPage() {
                             <p className="text-sm font-semibold text-slate-800">{w.channel_name || '-'}</p>
                           </div>
                           <div>
-                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Start Date</p>
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">Date of delivery</p>
                             <p className="text-sm font-medium text-slate-600">
-                              {w.date_of_purchase
-                                ? new Date(w.date_of_purchase).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
+                              {(w.date_of_delivery || w.date_of_purchase)
+                                ? new Date(w.date_of_delivery || w.date_of_purchase).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
                                 : '-'}
                             </p>
                           </div>

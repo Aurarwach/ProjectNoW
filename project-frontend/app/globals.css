@@ -93,6 +93,10 @@ button:disabled,
   background-color: var(--dark-surface-muted) !important;
 }
 
+.dark .page-bg-dark {
+  background-color: var(--dark-bg) !important;
+}
+
 .dark .text-slate-900,
 .dark .text-slate-800,
 .dark .dark\:text-slate-100,
@@ -363,4 +367,12 @@ main .space-y-6 > :not([hidden]) ~ :not([hidden]) {
   main .p-6 {
     padding: 1rem !important;
   }
+}
+
+.dark body .page-bg-dark,
+.dark body main.page-bg-dark,
+.dark body .page-bg-dark > main,
+.dark body .page-bg-dark > .page-bg-dark {
+  background-color: #121212 !important;
+  background-image: none !important;
 }

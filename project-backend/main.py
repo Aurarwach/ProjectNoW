@@ -12,6 +12,7 @@ from routers.dashboard import router as dashboard_router
 from routers.customers import router as customers_router
 from routers.agents    import router as agents_router
 from routers.auth     import router as auth_router
+from routers.admin    import router as admin_router
 
 app = FastAPI(
     title="AI Voice Intelligence System API",
@@ -91,6 +92,12 @@ app.include_router(
     auth_router,
     prefix="/api/v1/auth",
     tags=["🔐 Authentication"],
+)
+
+app.include_router(
+    admin_router,
+    prefix="/api/v1/admin",
+    tags=["🛡️ Admin Management"],
 )
 
 

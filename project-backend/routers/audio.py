@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks, Form
+from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks, Form, Request
 from fastapi.responses import FileResponse, JSONResponse
+
+from routers.audit_helper import log_from_request
 
 from services.file_converter import (
     save_uploaded_file,
@@ -180,6 +182,7 @@ async def get_file_detail(file_id: str):
 # =============================================================================
 @router.post("/upload", summary="📤 อัปโหลดไฟล์เสียง + เริ่มวิเคราะห์อัตโนมัติ", status_code=201)
 async def upload_audio(
+    request: Request,
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     customer_phone: str = Form(default="N/A"),
@@ -288,6 +291,16 @@ async def upload_audio(
     except Exception as e:
         print(f"⚠️ Auto-analyze queue error: {e}")
 
+    # ★ Log UPLOAD_FILE action
+    log_from_request(
+        request,
+        action="UPLOAD_FILE",
+        target_type="file",
+        target_id=file_id,
+        target_label=file.filename,
+        detail=f"size={len(content)} bytes, ext={ext}",
+    )
+
     return JSONResponse(status_code=201, content={
         "success": True,
         "message": "อัปโหลดสำเร็จ — กำลังเริ่มวิเคราะห์อัตโนมัติ",
@@ -326,16 +339,27 @@ async def play_audio(file_id: str):
 # DELETE /delete/{file_id}
 # =============================================================================
 @router.delete("/delete/{file_id}", summary="🗑️ ลบไฟล์เสียง")
-async def delete_audio_endpoint(file_id: str):
+async def delete_audio_endpoint(file_id: str, request: Request):
     audio = get_audio_file_by_id(file_id)
     if not audio:
         raise HTTPException(status_code=404, detail=f"ไม่พบไฟล์ ID: {file_id}")
+
+    filename = audio.get("original_filename", "(unknown)")
 
     # ลบไฟล์จาก disk
     delete_files_by_id(file_id)
 
     # ลบจาก DB (audio_files + audio_analyses)
     delete_audio_file(file_id)
+
+    # ★ Log DELETE_FILE
+    log_from_request(
+        request,
+        action="DELETE_FILE",
+        target_type="file",
+        target_id=file_id,
+        target_label=filename,
+    )
 
     return {"success": True, "message": f"ลบไฟล์ {file_id} สำเร็จ"}
 
@@ -344,21 +368,34 @@ async def delete_audio_endpoint(file_id: str):
 # POST /delete-batch — ลบหลายไฟล์พร้อมกัน
 # =============================================================================
 @router.post("/delete-batch", summary="🗑️ ลบหลายไฟล์พร้อมกัน")
-async def delete_batch(payload: dict):
+async def delete_batch(payload: dict, request: Request):
     file_ids = payload.get("file_ids", [])
     if not file_ids:
         raise HTTPException(status_code=400, detail="กรุณาระบุไฟล์ที่ต้องการลบ")
 
     deleted = 0
     not_found = 0
+    deleted_files = []
     for fid in file_ids:
         audio = get_audio_file_by_id(fid)
         if audio:
+            deleted_files.append(audio.get("original_filename", fid))
             delete_files_by_id(fid)
             delete_audio_file(fid)
             deleted += 1
         else:
             not_found += 1
+
+    # ★ Log DELETE_FILE_BATCH
+    if deleted > 0:
+        log_from_request(
+            request,
+            action="DELETE_FILE_BATCH",
+            target_type="file",
+            target_id=",".join(file_ids[:10]),  # cap first 10
+            target_label=f"{deleted} files",
+            detail=f"deleted={deleted}, not_found={not_found}; first: {', '.join(deleted_files[:3])}",
+        )
 
     return {
         "success": True,

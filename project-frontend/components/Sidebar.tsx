@@ -2,12 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, Folder, Users, ShieldCheck, LogOut, Headphones } from 'lucide-react';
+import { LayoutDashboard, FileText, Folder, Users, ShieldCheck, LogOut, Headphones, ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+
+  // ★ Role-based access — ADMIN เห็นทุกอย่าง, STAFF/VIEWER ไม่เห็น Agents + Admin
+  const isAdmin = user?.role === 'ADMIN';
 
   return (
     <aside className="w-64 h-screen bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between">
@@ -32,14 +35,24 @@ export default function Sidebar() {
             <Users size={20} />
             <span>Customer Information</span>
           </Link>
-          <Link href="/agents" className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${pathname.includes('/agents') ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-            <Headphones size={20} />
-            <span>Agents</span>
-          </Link>
+          {/* ★ Agents — เฉพาะ ADMIN เห็น */}
+          {isAdmin && (
+            <Link href="/agents" className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${pathname.includes('/agents') ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+              <Headphones size={20} />
+              <span>Agents</span>
+            </Link>
+          )}
           <Link href="/warranty" className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${pathname === '/warranty' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
             <ShieldCheck size={20} />
             <span>Warranty Storage</span>
           </Link>
+          {/* ★ Admin Management — เฉพาะ ADMIN เห็น */}
+          {isAdmin && (
+            <Link href="/admin" className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${pathname.includes('/admin') ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+              <ShieldAlert size={20} />
+              <span>Admin Management</span>
+            </Link>
+          )}
         </nav>
       </div>
 

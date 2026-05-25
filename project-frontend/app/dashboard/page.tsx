@@ -3,10 +3,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/AuthProvider';
 import {
   FileAudio, CheckCircle2, RefreshCw, AlertTriangle,
   Smile, Meh, Frown, Lightbulb, Tag,
-  UserRound, AlertCircle, MoreHorizontal, Calendar, Download
+  UserRound, AlertCircle, MoreHorizontal
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -45,6 +46,8 @@ const BRAND_COLORS = [
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [data, setData] = useState<InsightsData | null>(null);
   const [period, setPeriod] = useState<Period>('day');
   const [brandView, setBrandView] = useState<BrandView>('volume');
@@ -188,23 +191,6 @@ export default function DashboardPage() {
     else setSelectedYear(yearStr);
   };
 
-  const datePickerValue = period === 'day'
-    ? selectedDay
-    : period === 'month'
-      ? selectedMonth
-      : `${selectedYear}-01-01`;
-
-  const handleDatePickerChange = (value: string) => {
-    if (!value) return;
-    if (period === 'day') setSelectedDay(value);
-    else if (period === 'month') setSelectedMonth(value);
-    else setSelectedYear(value.slice(0, 4));
-  };
-
-  const handleExportAgentCsv = () => {
-    window.open(`${API_BASE}/api/v1/dashboard/export-agents?format=csv`, '_blank');
-  };
-
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
       <Sidebar />
@@ -239,11 +225,14 @@ export default function DashboardPage() {
                   <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#4F46E5] leading-none">Voice</h1>
                   <h1 className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight text-[#0F172A] leading-none">Analytics</h1>
                   <span
-                    className="text-[24px] sm:text-[28px] md:text-[32px] font-black tracking-tight leading-none ml-1 sm:ml-1.5"
+                    className="text-[32px] sm:text-[38px] md:text-[44px] leading-none ml-1 sm:ml-1.5 relative top-1.5 sm:top-2"
                     style={{
+                      fontFamily: 'var(--font-great-vibes), cursive',
                       background: 'linear-gradient(to right, #0F172A, #4F46E5, #8B5CF6)',
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
+                      padding: '8px 12px 8px 0',
+                      lineHeight: '1.2'
                     }}
                   >
                     Dashboard
@@ -286,18 +275,8 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              <div className="flex h-10 min-w-[260px] items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+              <div className="flex h-10 min-w-[224px] items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
                 <button onClick={() => moveDate(-1)} className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer font-bold">-</button>
-                <label className="dashboard-date-picker-trigger relative flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-indigo-600 cursor-pointer" title="เลือกวันที่">
-                  <Calendar size={16} />
-                  <input
-                    type={period === 'month' ? 'month' : 'date'}
-                    value={datePickerValue}
-                    onChange={(e) => handleDatePickerChange(e.target.value)}
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    aria-label="เลือกวันที่"
-                  />
-                </label>
                 <span className="text-xs font-bold text-slate-700 min-w-[140px] text-center">{dateLabel}</span>
                 <button onClick={() => moveDate(1)} className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer font-bold">+</button>
               </div>
@@ -309,15 +288,6 @@ export default function DashboardPage() {
               >
                 <RefreshCw size={18} />
               </button>
-
-              <button
-                onClick={handleExportAgentCsv}
-                className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer"
-                title="Export Agent Performance CSV"
-              >
-                <Download size={16} />
-                Export
-              </button>
             </div>
           </div>
 
@@ -326,18 +296,18 @@ export default function DashboardPage() {
             {[
               { label: 'Total',       value: kpi?.total_files || 0, icon: (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src="/total.png" alt="Total Files" className="h-full w-full object-cover" />
+                <img src="/total.png" alt="Total Files" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" />
               ) },
-              { label: 'Analyzed',    value: kpi?.analyzed || 0,    icon: <CheckCircle2 size={30} strokeWidth={2} className="text-[#10B981] drop-shadow-[0_2px_8px_rgba(16,185,129,0.35)]" /> },
+              { label: 'Analyzed',    value: kpi?.analyzed || 0,    icon: <CheckCircle2 size={30} strokeWidth={2} className="text-[#10B981] drop-shadow-[0_2px_8px_rgba(16,185,129,0.35)] transition-transform duration-500 group-hover:scale-110" /> },
               { label: 'Processing',  value: kpi?.processing || 0,  icon: (
                 <div className="flex h-12 w-12 items-center justify-center rounded-[18px] border border-[#FFE8B8] bg-[#FFF8EA] text-[#F59E0B] shadow-[0_8px_22px_-14px_rgba(245,158,11,0.9)]">
                   <RefreshCw size={25} strokeWidth={2.7} className="animate-spin [animation-duration:2.6s]" />
                 </div>
               ) },
-              { label: 'Failed',      value: kpi?.failed || 0,      icon: <AlertTriangle size={30} strokeWidth={2} className="text-[#EF4444] drop-shadow-[0_2px_8px_rgba(239,68,68,0.35)]" /> },
+              { label: 'Failed',      value: kpi?.failed || 0,      icon: <AlertTriangle size={30} strokeWidth={2} className="text-[#EF4444] drop-shadow-[0_2px_8px_rgba(239,68,68,0.35)] transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-12" /> },
             ].map((card) => (
-              <div key={card.label} className="bg-white dark:bg-slate-800 rounded-[24px] p-6 flex items-center gap-5 shadow-[0_2px_15px_-3px_rgba(6,81,237,0.06)] border border-slate-100/80 dark:border-slate-700">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[20px] bg-white dark:bg-slate-900 shadow-[0_4px_20px_-3px_rgba(6,81,237,0.08)] ring-1 ring-slate-100/50 dark:ring-slate-700">
+              <div key={card.label} className="group bg-white dark:bg-slate-800 rounded-[24px] p-6 flex items-center gap-5 shadow-[0_2px_15px_-3px_rgba(6,81,237,0.06)] border border-slate-100/80 dark:border-slate-700 transition-all duration-300 hover:shadow-[0_10px_30px_-5px_rgba(6,81,237,0.12)] hover:-translate-y-1">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[20px] bg-white dark:bg-slate-900 shadow-[0_4px_20px_-3px_rgba(6,81,237,0.08)] ring-1 ring-slate-100/50 dark:ring-slate-700 transition-all duration-300 group-hover:shadow-[0_6px_25px_-2px_rgba(6,81,237,0.15)] group-hover:ring-blue-100/50">
                   {card.icon}
                 </div>
                 <div>
@@ -454,7 +424,7 @@ export default function DashboardPage() {
                             type="button"
                             suppressHydrationWarning
                             onClick={() => router.push(`/files?topic=${encodeURIComponent(seg.topic)}`)}
-                            className="group w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50"
+                            className="group w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50"
                             title={`ดูไฟล์ที่มี topic: ${seg.topic}`}
                           >
                             <div className="flex items-center gap-2.5">
@@ -715,7 +685,8 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Row 5: Agent Performance */}
+          {/* Row 5: Agent Performance — ★ เฉพาะ ADMIN เห็น */}
+          {isAdmin && (
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 dark:border-slate-700/50 mb-6 overflow-hidden">
             <div className="p-6 border-b border-slate-100 dark:border-slate-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
@@ -795,16 +766,16 @@ export default function DashboardPage() {
                         </td>
                         <td className="p-4">
                           <div className="flex items-center justify-center gap-3 text-[11px] font-mono">
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500 text-white border border-emerald-500" title="Positive">
-                              <span className="w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/10 text-emerald-600 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-800/30" title="Positive">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                               {a.positive_calls}
                             </div>
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-500 text-white border border-slate-500" title="Neutral">
-                              <span className="w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/50" title="Neutral">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
                               {a.neutral_calls}
                             </div>
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500 text-white border border-red-500" title="Negative">
-                              <span className="w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 border border-red-100/50 dark:border-red-800/30" title="Negative">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
                               {a.negative_calls}
                             </div>
                           </div>
@@ -816,6 +787,7 @@ export default function DashboardPage() {
               </table>
             </div>
           </div>
+          )}
 
         </div>
       </main>
