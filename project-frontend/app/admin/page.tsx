@@ -227,6 +227,7 @@ export default function AdminManagementPage() {
       <Sidebar />
 
       <main className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900 p-4 sm:p-5 lg:p-6">
+        <div className="mx-auto w-full max-w-[1280px]">
         {/* Header */}
         <div className="mb-6">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -240,7 +241,7 @@ export default function AdminManagementPage() {
         </div>
 
         {/* Tab switcher */}
-        <div className="inline-flex items-center gap-1 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl mb-6 shadow-sm">
+        <div className="flex w-full max-w-full items-center gap-1 overflow-x-auto p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl mb-6 shadow-sm">
           <button
             onClick={() => setTab('users')}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
@@ -555,6 +556,7 @@ export default function AdminManagementPage() {
             </div>
           </div>
         )}
+        </div>
       </main>
     </div>
   );
