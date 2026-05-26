@@ -233,7 +233,7 @@ export default function DashboardPage() {
       period,
     });
     if (period !== 'all') params.set('date', currentDateParam);
-    window.open(`${API_BASE}/api/v1/dashboard/export-calls?${params.toString()}`, '_blank');
+    window.open(`${API_BASE}/api/v1/dashboard/export-agents?${params.toString()}`, '_blank');
   };
 
   return (
