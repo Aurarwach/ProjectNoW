@@ -35,7 +35,7 @@ interface InsightsData {
   agent_performance: AgentItem[];
 }
 
-type Period = 'day' | 'month' | 'year';
+type Period = 'day' | 'month' | 'year' | 'all';
 type BrandView = 'volume' | 'issues';
 
 const TOPIC_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316'];
@@ -68,12 +68,15 @@ export default function DashboardPage() {
   const currentDateParam = useMemo(() => {
     if (period === 'day')   return selectedDay;
     if (period === 'month') return selectedMonth;
+    if (period === 'all')   return '';
     return selectedYear;
   }, [period, selectedDay, selectedMonth, selectedYear]);
 
   const fetchAll = useCallback(async () => {
     try {
-      const insightsUrl = `${API_BASE}/api/v1/dashboard/insights?period=${period}&date=${encodeURIComponent(currentDateParam)}`;
+      const params = new URLSearchParams({ period });
+      if (period !== 'all') params.set('date', currentDateParam);
+      const insightsUrl = `${API_BASE}/api/v1/dashboard/insights?${params.toString()}`;
       const insightsRes = await fetch(insightsUrl);
       if (insightsRes.ok) {
         const d: InsightsData = await insightsRes.json();
@@ -154,6 +157,7 @@ export default function DashboardPage() {
   const selectedPeriodDate = useMemo(() => {
     if (period === 'day') return new Date(`${selectedDay}T00:00:00`);
     if (period === 'month') return new Date(`${selectedMonth}-01T00:00:00`);
+    if (period === 'all') return new Date(`${selectedYear}-01-01T00:00:00`);
     return new Date(`${selectedYear}-01-01T00:00:00`);
   }, [period, selectedDay, selectedMonth, selectedYear]);
 
@@ -167,7 +171,7 @@ export default function DashboardPage() {
     if (period === 'year') {
       return selectedPeriodDate.toLocaleDateString('en-US', { year: 'numeric' });
     }
-    return '';
+    return 'All Time';
   }, [period, selectedPeriodDate]);
 
   const moveDate = (direction: -1 | 1) => {
@@ -187,7 +191,7 @@ export default function DashboardPage() {
   const resetCurrentPeriod = () => {
     if (period === 'day') setSelectedDay(todayISO);
     else if (period === 'month') setSelectedMonth(monthISO);
-    else setSelectedYear(yearStr);
+    else if (period === 'year') setSelectedYear(yearStr);
   };
 
   const datePickerId = `dashboard-date-picker-${period}`;
@@ -196,7 +200,9 @@ export default function DashboardPage() {
     ? selectedDay
     : period === 'month'
       ? selectedMonth
-      : `${selectedYear}-01-01`;
+      : period === 'year'
+        ? `${selectedYear}-01-01`
+        : selectedDay;
 
   const handleDatePickerChange = (value: string) => {
     if (!value) return;
@@ -225,8 +231,8 @@ export default function DashboardPage() {
     const params = new URLSearchParams({
       format: 'xlsx',
       period,
-      date: currentDateParam,
     });
+    if (period !== 'all') params.set('date', currentDateParam);
     window.open(`${API_BASE}/api/v1/dashboard/export-calls?${params.toString()}`, '_blank');
   };
 
@@ -283,7 +289,9 @@ export default function DashboardPage() {
                       ? selectedPeriodDate.toLocaleDateString('th-TH', { weekday: 'long' })
                       : period === 'month'
                         ? selectedPeriodDate.toLocaleDateString('th-TH', { month: 'long' })
-                        : `ปี ${selectedPeriodDate.toLocaleDateString('th-TH', { year: 'numeric' })}`}
+                        : period === 'year'
+                          ? `ปี ${selectedPeriodDate.toLocaleDateString('th-TH', { year: 'numeric' })}`
+                          : 'ทั้งหมด'}
                   </span>
                   <span className="text-indigo-200">|</span>
                   <span>{dateLabel.toUpperCase()}</span>
@@ -300,11 +308,12 @@ export default function DashboardPage() {
                   { v: 'day' as const, label: 'Day' },
                   { v: 'month' as const, label: 'Month' },
                   { v: 'year' as const, label: 'Year' },
+                  { v: 'all' as const, label: 'All' },
                 ]).map(opt => (
                   <button
                     key={opt.v}
                     onClick={() => setPeriod(opt.v)}
-                    className={`px-4 font-bold transition-colors cursor-pointer ${period === opt.v ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50'} ${opt.v !== 'year' ? 'border-r border-slate-100' : ''}`}
+                    className={`px-4 font-bold transition-colors cursor-pointer ${period === opt.v ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50'} ${opt.v !== 'all' ? 'border-r border-slate-100' : ''}`}
                   >
                     {opt.label}
                   </button>
@@ -316,7 +325,7 @@ export default function DashboardPage() {
                 <label
                   htmlFor={datePickerId}
                   onClick={openDatePicker}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-indigo-600 dark:text-slate-300 dark:hover:text-white"
+                  className="dashboard-date-picker-trigger flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-slate-100 text-slate-500 ring-1 ring-slate-200/80 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:bg-white/90 dark:text-slate-900 dark:ring-white/70 dark:hover:bg-white"
                   title="Select date"
                 >
                   <Calendar size={16} strokeWidth={2.4} />
@@ -342,13 +351,15 @@ export default function DashboardPage() {
                 <RefreshCw size={18} />
               </button>
 
-              <button
-                onClick={handleExport}
-                className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-              >
-                <Download size={16} strokeWidth={2.4} />
-                Export
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleExport}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                >
+                  <Download size={16} strokeWidth={2.4} />
+                  Export
+                </button>
+              )}
             </div>
           </div>
 
